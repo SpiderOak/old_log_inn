@@ -37,10 +37,11 @@ class TestZMQPushLogHandler(unittest.TestCase):
         test log handler functionality using a single PULL socket
         """
         os.environ["PYTHON_ZMQ_LOG_HANDLER"] = _test_addresses[0]
+        log_path = "aaa/bbb/ccc.log"
 
         # create the handler first so it can do the work of preparing
         # the sockets
-        handler = ZMQPushLogHandler()
+        handler = ZMQPushLogHandler(log_path)
         logging.root.addHandler(handler)
         logging.root.setLevel(logging.DEBUG)
 

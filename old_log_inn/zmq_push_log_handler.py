@@ -36,6 +36,8 @@ import json
 import logging
 import os
 import os.path
+import socket
+import uuid
 import zlib
 
 import zmq
@@ -52,8 +54,12 @@ class ZMQPushLogHandler(logging.Handler):
 
     The body is the content of the log message.   
     """
-    def __init__(self, level=logging.NOTSET):
+    def __init__(self, log_path, level=logging.NOTSET):
         super(ZMQPushLogHandler, self).__init__(level)
+        self._log_path = log_path
+        self._hostname = socket.gethostname()
+        self._uuid = uuid.uuid4()
+        self._sequence = 0
         self._zmq_context = zmq.Context()
         self._push_sockets = list()
         for address in os.environ["PYTHON_ZMQ_LOG_HANDLER"].split():
@@ -68,9 +74,18 @@ class ZMQPushLogHandler(logging.Handler):
         """
         Do whatever it takes to actually log the specified logging record.
         """
-        header = {}
+        self._sequence += 1
+
+        header = {"hostname"    : self._hostname,
+                  "uuid"        : self._uuid.hex,
+                  "sequence"    : self._sequence,
+                  "pid"         : record.process,
+                  "timestamp"   : record.created,
+                  "log_path"    : self._log_path}
         compressed_header = zlib.compress(json.dumps(header))
+
         compressed_record = zlib.compress(record.getMessage())
+
         for push_socket in self._push_sockets:
             push_socket.send(compressed_header, zmq.SNDMORE)
             push_socket.send(compressed_record)
