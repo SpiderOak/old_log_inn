@@ -1,4 +1,4 @@
-old_log_inn
-===========
+The Old Log Inn
+===============
 
 lossless centralized logging via ZMQ.
