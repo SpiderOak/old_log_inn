@@ -32,17 +32,11 @@ timestamp: time.time()
 log_filename: the filename that the program would log to if it were using 
 normal file based logging. This may include slashes to indicate directories.
 """
-import json
 import logging
-import os
-import os.path
-import socket
-import uuid
-import zlib
 
 import zmq
 
-from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
+from old_log_inn.log_line_pusher import LogLinePusher
 
 class ZMQPushLogHandler(logging.Handler):
     """
@@ -54,47 +48,50 @@ class ZMQPushLogHandler(logging.Handler):
 
     The body is the content of the log message.   
     """
-    def __init__(self, log_path, level=logging.NOTSET):
+    def __init__(self, log_path, zmq_context=None, level=logging.NOTSET):
+        """
+        log_path
+            The filename that the program would log to if it were using normal 
+            file based logging. 
+            This may include slashes to indicate directories.
+            Used as a key to identify this log.
+
+        zmq_context
+            zeromq context. A program should have only one zmq context.
+            If you don't pass a context in, we will create one.
+
+        level
+            minimum log level. This is usually set externally
+        """
         super(ZMQPushLogHandler, self).__init__(level)
-        self._log_path = log_path
-        self._hostname = socket.gethostname()
-        self._uuid = uuid.uuid4()
-        self._sequence = 0
-        self._zmq_context = zmq.Context()
-        self._push_sockets = list()
-        for address in os.environ["PYTHON_ZMQ_LOG_HANDLER"].split():
-            if is_ipc_protocol(address):
-                prepare_ipc_path(address)
-            push_socket = self._zmq_context.socket(zmq.PUSH)
-            push_socket.setsockopt(zmq.LINGER, 5000)
-            push_socket.connect(address)
-            self._push_sockets.append(push_socket)
+
+        # if the caller does not suppy a zeromq context (they really should)
+        # we create our own and hold a reference to it so we can terminate it.
+        if zmq_context is None:
+            self._zmq_context = zmq.Context()
+            zmq_context = self._zmq_context
+        else:
+            self._zmq_context = None
+
+        self._log_line_pusher = LogLinePusher(zmq_context, log_path)
 
     def emit(self, record):
         """
         Do whatever it takes to actually log the specified logging record.
+
+        record
+            python LogRecord object
+            we use only the string returned by record.getMessage()
         """
-        self._sequence += 1
-
-        header = {"hostname"    : self._hostname,
-                  "uuid"        : self._uuid.hex,
-                  "sequence"    : self._sequence,
-                  "pid"         : record.process,
-                  "timestamp"   : record.created,
-                  "log_path"    : self._log_path}
-        compressed_header = zlib.compress(json.dumps(header))
-
-        compressed_record = zlib.compress(record.getMessage())
-
-        for push_socket in self._push_sockets:
-            push_socket.send(compressed_header, zmq.SNDMORE)
-            push_socket.send(compressed_record)
+        self._log_line_pusher.push_log_line(record.getMessage())
         
     def close(self):
         """
         Tidy up any resources used by the handler.
         """
         super(ZMQPushLogHandler, self).close()
-        for push_socket in self._push_sockets:
-            push_socket.close()
-        self._zmq_context.term()
+
+        self._log_line_pusher.close()
+
+        if self._zmq_context is not None:
+            self._zmq_context.term()

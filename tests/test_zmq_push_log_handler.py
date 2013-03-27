@@ -4,6 +4,7 @@ test_zmq_push_log_hander.py
 
 
 """
+import json
 import logging
 import os
 import sys
@@ -11,6 +12,7 @@ try:
     import unittest2 as unittest
 except ImportError:
     import unittest
+import zlib
 
 import zmq
 
@@ -58,9 +60,12 @@ class TestZMQPushLogHandler(unittest.TestCase):
         result_list = poller.poll(timeout=_poll_timeout)
         self.assertEqual(len(result_list), 1)
 
-        header = pull_socket.recv(zmq.NOBLOCK)
-        self.assertTrue(pull_socket.rcvmore)
-        body = pull_socket.recv()
+        compressed_header = pull_socket.recv(zmq.NOBLOCK)
+        self.assertTrue(pull_socket.rcvmore)        
+        compressed_body = pull_socket.recv()
+
+        header = json.loads(zlib.decompress(compressed_header))
+        body = zlib.decompress(compressed_body)
 
 if __name__ == "__main__":
     unittest.main()
