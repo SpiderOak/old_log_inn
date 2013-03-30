@@ -9,24 +9,12 @@ bundled with runit.
 """
 import argparse
 import errno
-import signal 
 import sys
-from threading import Event
 
 import zmq
 
 from old_log_inn.log_line_pusher import LogLinePusher
-
-def _create_signal_handler(halt_event):
-    def cb_handler(*_):
-        halt_event.set()
-    return cb_handler
-
-def _set_signal_handler(halt_event):
-    """
-    set a signal handler to set halt_event when SIGTERM is raised
-    """
-    signal.signal(signal.SIGTERM, _create_signal_handler(halt_event))
+from old_log_inn.signal_handler import set_signal_handler
 
 def _parse_commandline():
     parser = \
@@ -40,12 +28,10 @@ def main():
     """
     args = _parse_commandline()
 
-    halt_event = Event()
-    _set_signal_handler(halt_event)
-
     zmq_context = zmq.Context()
     log_line_pusher = LogLinePusher(zmq_context, args.log_path)
 
+    halt_event = set_signal_handler()
     while not halt_event.is_set():
         try:
             line = sys.stdin.readline()

@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-log_spewer.py
+stdout_spewer.py
 
-A program to write log lines at intervals
+A program to write log lines to stdout at intervals
 """
 import argparse
 import logging
 import signal 
 import sys
 from threading import Event
-
-from old_log_inn.zmq_push_log_handler import ZMQPushLogHandler
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 
@@ -32,7 +30,7 @@ def _parse_commandline():
     return parser.parse_args()
 
 def _initialize_logging(log_path):
-    handler = ZMQPushLogHandler(log_path)
+    handler = logging.StreamHandler(stream=sys.stdout)
     formatter = logging.Formatter(_log_format_template)
     handler.setFormatter(formatter)
     logging.root.addHandler(handler)
