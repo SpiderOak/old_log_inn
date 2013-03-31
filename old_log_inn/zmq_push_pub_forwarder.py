@@ -7,15 +7,12 @@ and re-publish every message on a ZMQ Pub socket.
 """
 import argparse
 import errno
-import signal 
 import socket
 import sys
 
 import zmq
 
-from old_log_inn.zmq_util import is_ipc_protocol, \
-                                 prepare_ipc_path, \
-                                 is_interrupted_system_call
+from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
 from old_log_inn.signal_handler import set_signal_handler
 
 def _parse_commandline():
