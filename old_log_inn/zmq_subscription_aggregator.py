@@ -1,0 +1,97 @@
+# -*- coding: utf-8 -*-
+"""
+zmq_subscription_aggregator.py
+
+A program to ubscribe to the log streams from every node, and re-publish them 
+on a single local pub socket, using HWM to give subscribers some protection 
+against disconnects.
+"""
+import argparse
+import errno
+import sys
+
+import zmq
+
+from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
+from old_log_inn.signal_handler import set_signal_handler
+
+def _parse_commandline():
+    parser = \
+        argparse.ArgumentParser(description='subscription_aggregator')
+    parser.add_argument("--sub-list", dest="sub_list_path")
+    parser.add_argument("--pub", dest="zmq_pub_socket_address")
+    parser.add_argument("--hwm", dest="hwm", type=int, default=20000)
+
+    return parser.parse_args()
+
+def _load_sub_list(sub_list_path):
+    """
+    load a list of socket addresses to subscribe to
+    """
+    with open(sub_list_path) as input_file:
+        return input_file.readlines()
+
+def main():
+    """
+    main entry point
+    """
+    args = _parse_commandline()
+
+    sub_address_list = _load_sub_list(args.sub_list_path)
+    for address in sub_address_list:
+        if is_ipc_protocol(address):
+            prepare_ipc_path(address)
+
+    if is_ipc_protocol(args.zmq_pub_socket_address):
+        prepare_ipc_path(args.zmq_pub_socket_address)
+
+    context = zmq.Context()
+
+    pub_socket = context.socket(zmq.PUB)
+    pub_socket.bind(args.zmq_pub_socket_address)
+    pub_socket.setsockopt(zmq.HWM, args.hwm)
+
+    poller = zmq.Poller()
+
+    sub_socket_list = list()
+    for sub_socket_address in sub_address_list:
+        sub_socket = context.socket(zmq.SUB)
+        sub_socket.connect(sub_socket_address)
+        poller.register(sub_socket, zmq.POLLIN)
+        sub_socket_list.append(sub_socket)
+
+    halt_event = set_signal_handler()
+    while not halt_event.is_set():
+
+        try:
+            result_list = poller.poll()
+        except zmq.ZMQError:
+            instance = sys.exc_info()[1]
+            if instance.errno == errno.EINTR and halt_event.is_set():
+                break
+            raise
+
+        for sub_socket, event in result_list: 
+            assert event == zmq.POLLIN, event
+
+            # we expect topic, compressed header, compressed body
+            topic = sub_socket.recv()
+            assert sub_socket.rcvmore
+            header = sub_socket.recv()
+            assert sub_socket.rcvmore
+            body = sub_socket.recv()
+            assert not sub_socket.rcvmore
+
+            # send out what we got in
+            pub_socket.send(topic, zmq.SNDMORE)
+            pub_socket.send(header, zmq.SNDMORE)
+            pub_socket.send(body)
+
+    pub_socket.close()
+    for sub_socket in sub_socket_list:
+        sub_socket.close()
+    context.term()
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
