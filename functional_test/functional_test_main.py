@@ -69,6 +69,61 @@ def _start_zmq_subscription_aggregator(old_log_inn_path, global_config):
                              "global", 
                              "zmq_subscription_aggregator")
 
+def _start_zmq_log_file_logger(old_log_inn_path,  
+                               sub_socket_address, 
+                               logger_config):
+    program_path = os.path.join(old_log_inn_path, 
+                                "old_log_inn", 
+                                "zmq_log_file_logger.py")
+    args = [sys.executable, 
+            program_path,
+            "--sub={0}".format(sub_socket_address),
+            "--zmq-identity={0}".format(logger_config["zmq_identity"]),
+            "--output={0}".format(logger_config["log_dir"])]
+
+    if "host_regexp" in logger_config:
+        args.append("--host-regexp={0}".format(logger_config["host_regexp"]))
+            
+    if "node_regexp" in logger_config:
+        args.append("--node-regexp={0}".format(logger_config["node_regexp"]))
+            
+    if "log_filename_regexp" in logger_config:
+        args.append("--node-regexp={0}".format(
+            logger_config["log_filename_regexp"]))
+
+    if "content_regexp" in logger_config:
+        args.append("--content-regexp={0}".format(
+            logger_config["content_regexp"]))      
+
+    if "add_hostname_to_path" in logger_config and \
+    logger_config["add_hostname_to_path"]:            
+        args.append("--add-hostname-to-path")
+
+    return _start_subprocess(args, 
+                             None, 
+                             "global", 
+                             "zmq_log_file_logger")
+
+def _start_zmq_push_pub_forwarder(old_log_inn_path, node_name, node_config):
+    program_path = os.path.join(old_log_inn_path, 
+                                "old_log_inn", 
+                                "zmq_push_pub_forwarder.py")
+    args = [sys.executable, 
+            program_path,
+            "--pull={0}".format(node_config["node_pull_socket_address"]),
+            "--pub={0}".format(node_config["node_pull_socket_address"]),
+            "--topic={0}".format(node_name)]
+
+    if "zmq_push_pub_forwarder" in node_config:
+        forwarder_config = node_config["zmq_push_pub_forwarder"]
+        if "hwm" in forwarder_config:
+            args.append("--hwm={0}".format(forwarder_config["hwm"]))
+
+    return _start_subprocess(args, 
+                             None, 
+                             node_name, 
+                             "zmq_push_pub_forwarder")
+
 def _start_subprocess(args, env, node_name, program_name):
     """
     start a subprocess set some extra attributes to help track it
@@ -90,6 +145,7 @@ def _start_subprocess(args, env, node_name, program_name):
 def _poll_processes(processes):
     log = logging.getLogger("_poll_processes")
     for process in processes:
+        process.poll()
         if process.active and process.returncode is not None:            
             _stdoutdata, stderrdata = process.communicate()
             if process.returncode == 0:
@@ -118,7 +174,7 @@ def main():
     config = _load_config_file(args.config_path)
 
     # config is a dict with keys ['global', <node-name-1>...<node-name-n>]
-    # not neccessarily in order
+    # not necessarily in order
     node_names = list(config.keys())
     node_names.remove("global")
     node_names.sort()
@@ -130,13 +186,27 @@ def main():
                                                  config["global"])
     processes.append(process)
 
+    if "zmq_log_file_logger" in config["global"]:
+        process = \
+            _start_zmq_log_file_logger(
+                args.old_log_inn_path,
+                config["global"]["aggregate_pub_socket_address"],
+                config["global"]["zmq_log_file_logger"])
+        processes.append(process)
+
+    for node_name in node_names:
+        process = _start_zmq_push_pub_forwarder(args.old_log_inn_path,
+                                                node_name, 
+                                                config[node_name])
+        processes.append(process)
+
     halt_event = set_signal_handler()
     start_time = time.time()
     while not halt_event.is_set():
         elapsed_time = int(time.time() - start_time)
         if elapsed_time > args.duration:
             log.info("time expired {0} seconds: stopping test".format(
-                     elapsed_time)
+                     elapsed_time))
             halt_event.set()
             break
         _poll_processes(processes)

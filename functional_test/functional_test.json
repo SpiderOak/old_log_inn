@@ -1,6 +1,13 @@
 {
-    "global" : {"aggregate_pub_socket_address" : "tcp://127.0.0.1:9000",
-                "aggregate_sub_socket_file"    : "/tmp/sub_sockets.txt"},
+    "global" : {
+    	"aggregate_pub_socket_address" : "tcp://127.0.0.1:9000",
+        "aggregate_sub_socket_file"    : "/tmp/sub_sockets.txt",
+        "zmq_log_file_logger" : {
+         	"zmq_identity"         : "global_zmq_log_file_logger",
+         	"log_dir"              : "/tmp/global_zmq_log_file_logger",
+         	"add_hostname_to_path" : true
+     		}
+        },
     "node01" : {"node_pub_socket_address"  : "tcp://127.0.0.1:8001",
                 "node_pull_socket_address" : "ipc:///tmp/node01/pull.socket"}
 }
