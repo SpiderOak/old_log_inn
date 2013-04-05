@@ -10,8 +10,10 @@ Log events are flushed to files as they are received (no buffering.)
 """
 import argparse
 import errno
+import json
 import logging
 import logging.handlers
+import os
 import os.path
 import re
 import socket
@@ -23,6 +25,19 @@ import zmq
 from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
 from old_log_inn.signal_handler import set_signal_handler
 
+_log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
+
+class DummyLogRecord(object):
+    """
+    This gives the log handler what it wants to see
+    """
+    def __init__(self, log_line):
+        self._log_line = log_line
+        self.exc_info = None
+        self.exc_text = None
+        self.stack_info = None
+    def getMessage(self):
+        return self._log_line
 
 def _parse_commandline():
     parser = \
@@ -32,7 +47,7 @@ def _parse_commandline():
                         default="file_logger.{0}".format(socket.gethostname()))
     parser.add_argument("--from-files", dest="from_files")
     parser.add_argument("--output",  dest="log_dir")
-    parser.add_argument("--host-regexp", dest="")
+    parser.add_argument("--host-regexp", dest="host_regexp")
     parser.add_argument("--node-regexp", dest="node_regexp")
     parser.add_argument("--log-filename-regexp", dest="log_filename_regexp")
     parser.add_argument("--content-regexp", dest="content_regexp")
@@ -46,6 +61,12 @@ def _parse_commandline():
     return parser.parse_args()
 
 def _get_one_message(sub_socket):
+    """
+    retrieve a message (3 parts)
+    decompress the parts
+    decode the parts into unicode
+    parse the JSON header into python objects
+    """
     _topic = sub_socket.recv()
     assert sub_socket.rcvmore
     compressed_header = sub_socket.recv()
@@ -53,8 +74,10 @@ def _get_one_message(sub_socket):
     compressed_body = sub_socket.recv()
     assert not sub_socket.rcvmore
 
-    header = zlib.decompress(compressed_header)
-    body = zlib.decompress(compressed_body)
+    raw_header = zlib.decompress(compressed_header)
+    header = json.loads(raw_header.decode("utf-8"))
+    raw_body = zlib.decompress(compressed_body)
+    body = raw_body.decode("utf-8")
 
     return header, body
 
@@ -70,13 +93,24 @@ def _create_log_handler(args, log_filename):
     """
     log_path = os.path.join(args.log_dir, log_filename)
 
-    return logging.handlers.RotatingFileHandler(
-        log_path,
-        mode="a", 
-        maxBytes=args.logfile_max_size,
-        backupCount=args.logfile_keep,
-        encoding="utf-8"
-    )
+    handler = \
+        logging.handlers.RotatingFileHandler(log_path,
+                                             mode="a", 
+                                             maxBytes=args.logfile_max_size,
+                                             backupCount=args.logfile_keep,
+                                             encoding="utf-8")
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+    return handler
+
+def _initialize_log(args):
+    log_level = logging.DEBUG
+    handler = _create_log_handler(args, "zmq_log_file_logger.log")
+    formatter = logging.Formatter(_log_format_template)
+    handler.setFormatter(formatter)
+
+    logging.root.addHandler(handler)
+    logging.root.setLevel(log_level)
 
 def _create_header_filters(args):
     filters = list()
@@ -114,17 +148,27 @@ def main():
     """
     args = _parse_commandline()
 
+    _initialize_log(args)
+    log = logging.getLogger("main")
+    log.info("program starts")
+
     header_filters = _create_header_filters(args)
     body_filter = _create_body_filter(args)
 
     if is_ipc_protocol(args.zmq_sub_address):
         prepare_ipc_path(args.zmq_sub_address)
 
+    if not os.path.isdir(args.log_dir):
+        os.makedirs(args.log_dir)
+
+    identity_bytes = args.zmq_identity.encode("utf-8")
+
     context = zmq.Context()
 
     sub_socket = context.socket(zmq.SUB)
     sub_socket.connect(args.zmq_sub_address)
-    sub_socket.setsockopt(zmq.IDENTITY, args.zmq_identity)
+    sub_socket.setsockopt(zmq.IDENTITY, identity_bytes)
+    sub_socket.setsockopt(zmq.SUBSCRIBE, "".encode("utf-8"))
 
     log_handlers = dict()
     halt_event = set_signal_handler()
@@ -137,11 +181,14 @@ def main():
             if instance.errno == errno.EINTR and halt_event.is_set():
                 break
             raise
+        log.debug("received {0}".format(header))
 
         if not all([f(header) for f in header_filters]):
+            log.debug("header does not pass filters {0}".format(header))
             continue
 
         if not body_filter(body):
+            log.debug("body does not pass filters {0}".format(body))
             continue
 
         log_filename = _compute_log_filename(args, header)
@@ -149,11 +196,17 @@ def main():
             log_handlers[log_filename] = _create_log_handler(args, 
                                                              log_filename)
         log_handler = log_handlers[log_filename]
+        log_record = DummyLogRecord(body)
+        log_handler.emit(log_record)
+        log_handler.flush()
 
-
- 
+    log.info("program shutting down")
     sub_socket.close()
     context.term()
+
+    for log_handler in log_handlers.values():
+        log_handler.close()
+
     return 0
 
 if __name__ == "__main__":

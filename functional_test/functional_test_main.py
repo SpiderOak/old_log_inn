@@ -61,13 +61,17 @@ def _start_zmq_subscription_aggregator(old_log_inn_path, global_config):
     args = [sys.executable, 
             program_path,
             "--sub-list={0}".format(global_config["aggregate_sub_socket_file"]),
-            "--pub={0}".format(global_config["aggregate_pub_socket_address"])
+            "--pub={0}".format(global_config["aggregate_pub_socket_address"],
+            "--verbose")
     ]
+
+    stdout_path = "/tmp/zmq_subscription_aggregator.log"
 
     return _start_subprocess(args, 
                              None, 
                              "global", 
-                             "zmq_subscription_aggregator")
+                             "zmq_subscription_aggregator",
+                             stdout=open(stdout_path, "w"))
 
 def _start_zmq_log_file_logger(old_log_inn_path,  
                                sub_socket_address, 
@@ -111,20 +115,45 @@ def _start_zmq_push_pub_forwarder(old_log_inn_path, node_name, node_config):
     args = [sys.executable, 
             program_path,
             "--pull={0}".format(node_config["node_pull_socket_address"]),
-            "--pub={0}".format(node_config["node_pull_socket_address"]),
-            "--topic={0}".format(node_name)]
+            "--pub={0}".format(node_config["node_pub_socket_address"]),
+            "--topic={0}".format(node_name),
+            "--verbose"]
 
     if "zmq_push_pub_forwarder" in node_config:
         forwarder_config = node_config["zmq_push_pub_forwarder"]
         if "hwm" in forwarder_config:
             args.append("--hwm={0}".format(forwarder_config["hwm"]))
 
+    stdout_path = "/tmp/zmq_push_pub_forwarder_{0}.log".format(node_name)
+
     return _start_subprocess(args, 
                              None, 
                              node_name, 
-                             "zmq_push_pub_forwarder")
+                             "zmq_push_pub_forwarder",
+                             stdout=open(stdout_path, "w"))
 
-def _start_subprocess(args, env, node_name, program_name):
+def _start_log_spewer(old_log_inn_path,
+                      node_name, 
+                      node_config,
+                      log_spewer_config):
+
+    program_path = os.path.join(old_log_inn_path, 
+                                "functional_test", 
+                                "log_spewer.py")
+
+    args = [sys.executable, 
+            program_path,
+            "--log-path={0}".format(log_spewer_config["log_path"])]
+
+    env = {"PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
+           "PYTHONPATH" : os.environ["PYTHONPATH"],}
+
+    return _start_subprocess(args, 
+                             env, 
+                             node_name, 
+                             log_spewer_config["name"])
+
+def _start_subprocess(args, env, node_name, program_name, stdout=None):
     """
     start a subprocess set some extra attributes to help track it
     * node_name
@@ -134,7 +163,10 @@ def _start_subprocess(args, env, node_name, program_name):
     """
     log = logging.getLogger("_start_subprocess")
     log.info("starting node {0} program {1}".format(node_name, program_name))
-    process = subprocess.Popen(args, stderr=subprocess.PIPE, env=env)
+    process = subprocess.Popen(args, 
+                               stderr=subprocess.PIPE, 
+                               stdout=stdout, 
+                               env=env)
 
     setattr(process, "active", True)
     setattr(process, "node_name", node_name)
@@ -142,23 +174,26 @@ def _start_subprocess(args, env, node_name, program_name):
 
     return process
 
+def _check_process_termination(process):
+    log = logging.getLogger("_check_process_termination")
+    _stdoutdata, stderrdata = process.communicate()
+    if process.returncode == 0:
+        log.info("node {0} program {0} terminated normally {1}".format(
+                 process.node_name,
+                 process.program_name,
+                 stderrdata))
+    else:
+        log.error("node {0} process {1} failed ({2}) {3}".format(
+                  process.node_name,
+                  process.program_name,                          
+                  process.returncode,
+                  stderrdata))
+
 def _poll_processes(processes):
-    log = logging.getLogger("_poll_processes")
     for process in processes:
         process.poll()
-        if process.active and process.returncode is not None:            
-            _stdoutdata, stderrdata = process.communicate()
-            if process.returncode == 0:
-                log.info("node {0} program {0} terminated normally {1}".format(
-                         process.node_name,
-                         process.program_name,
-                         stderrdata))
-            else:
-                log.error("node {0} process {1} failed ({2}) {3}".format(
-                          process.node_name,
-                          process.program_name,                          
-                          process.returncode,
-                          stderrdata))
+        if process.active and process.returncode is not None:
+            _check_process_termination(process)            
             setattr(process, "active", False)
 
 def main():
@@ -200,6 +235,14 @@ def main():
                                                 config[node_name])
         processes.append(process)
 
+        if "log_spewers" in config[node_name]:
+            for log_spewer_config in config[node_name]["log_spewers"]:
+                process = _start_log_spewer(args.old_log_inn_path,
+                                            node_name, 
+                                            config[node_name],
+                                            log_spewer_config)
+                processes.append(process)
+
     halt_event = set_signal_handler()
     start_time = time.time()
     while not halt_event.is_set():
@@ -224,7 +267,7 @@ def main():
                       process.node_name,
                       process.program_name))
             process.terminate()
-    _poll_processes(processes)
+            _check_process_termination(process)
 
     log.info("program terminates with return code 0")
     return 0

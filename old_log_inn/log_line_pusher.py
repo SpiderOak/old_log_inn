@@ -62,9 +62,11 @@ class LogLinePusher(object):
                   "log_path"    : self._log_path}
         if self._nodename is not None:
             header["nodename"] = self._nodename
-        compressed_header = zlib.compress(json.dumps(header))
 
-        compressed_record = zlib.compress(log_line)
+        header_json = json.dumps(header)
+        compressed_header = zlib.compress(header_json.encode("utf-8"))
+
+        compressed_record = zlib.compress(log_line.encode("utf-8"))
 
         for push_socket in self._push_sockets:
             push_socket.send(compressed_header, zmq.SNDMORE)

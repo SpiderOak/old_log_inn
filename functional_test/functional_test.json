@@ -8,6 +8,13 @@
          	"add_hostname_to_path" : true
      		}
         },
-    "node01" : {"node_pub_socket_address"  : "tcp://127.0.0.1:8001",
-                "node_pull_socket_address" : "ipc:///tmp/node01/pull.socket"}
+    "node01" : {
+        "node_pub_socket_address"  : "tcp://127.0.0.1:8001",
+        "node_pull_socket_address" : "ipc:///tmp/node01/pull.socket",
+        "log_spewers" : [
+            {
+                "name"      : "log_spewer1",
+                "log_path"  : "node1_log_spewer1.log"
+            }]
+        }
 }
