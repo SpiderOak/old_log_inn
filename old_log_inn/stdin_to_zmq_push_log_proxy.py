@@ -40,7 +40,7 @@ def main():
             if instance.errno == errno.EINTR and halt_event.is_set():
                 break
             raise 
-        log_line_pusher.push_log_line(line)
+        log_line_pusher.push_log_line(line[:-1])
 
     log_line_pusher.close()
     zmq_context.term()

@@ -153,7 +153,51 @@ def _start_log_spewer(old_log_inn_path,
                              node_name, 
                              log_spewer_config["name"])
 
-def _start_subprocess(args, env, node_name, program_name, stdout=None):
+def _start_stdout_spewer(old_log_inn_path, node_name, stdout_spewer_config):
+    program_path = os.path.join(old_log_inn_path, 
+                                "functional_test", 
+                                "stdout_spewer.py")
+
+    args = [sys.executable, 
+            program_path]
+
+    env = {"PYTHONPATH" : os.environ["PYTHONPATH"],}
+
+    return _start_subprocess(args, 
+                             env, 
+                             node_name, 
+                             stdout_spewer_config["spewer_name"],
+                             stdout=subprocess.PIPE)
+                
+def _start_stdin_to_zmq_log_proxy(old_log_inn_path, 
+                                  node_name, 
+                                  node_config,
+                                  stdout_spewer_config,
+                                  stdout_spewer_stdout):
+
+    program_path = os.path.join(old_log_inn_path, 
+                                "old_log_inn", 
+                                "stdin_to_zmq_push_log_proxy.py")
+
+    args = [sys.executable, 
+            program_path,
+            "--log-path={0}".format(stdout_spewer_config["log_path"])]
+
+    env = {"PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
+           "PYTHONPATH" : os.environ["PYTHONPATH"],}
+
+    return _start_subprocess(args, 
+                             env, 
+                             node_name, 
+                             stdout_spewer_config["proxy_name"],
+                             stdin=stdout_spewer_stdout)
+
+def _start_subprocess(args, 
+                      env, 
+                      node_name, 
+                      program_name, 
+                      stdout=None, 
+                      stdin=None):
     """
     start a subprocess set some extra attributes to help track it
     * node_name
@@ -166,6 +210,7 @@ def _start_subprocess(args, env, node_name, program_name, stdout=None):
     process = subprocess.Popen(args, 
                                stderr=subprocess.PIPE, 
                                stdout=stdout, 
+                               stdin=stdin,
                                env=env)
 
     setattr(process, "active", True)
@@ -176,7 +221,14 @@ def _start_subprocess(args, env, node_name, program_name, stdout=None):
 
 def _check_process_termination(process):
     log = logging.getLogger("_check_process_termination")
-    _stdoutdata, stderrdata = process.communicate()
+    try:
+        process.wait()
+        stderrdata = process.stderr.read()
+    except Exception:
+        log.exception("{0} {1}".format(
+                      process.node_name, process.program_name))
+        return
+
     if process.returncode == 0:
         log.info("node {0} program {0} terminated normally {1}".format(
                  process.node_name,
@@ -243,6 +295,26 @@ def main():
                                             log_spewer_config)
                 processes.append(process)
 
+        if "stdout_spewers" in config[node_name]:
+            for stdout_spewer_config in config[node_name]["stdout_spewers"]:
+                # start a stdout spewer pipelined to a stdin_to_zmq_log_proxy
+                spewer_process = \
+                    _start_stdout_spewer(args.old_log_inn_path,
+                                         node_name, 
+                                         stdout_spewer_config)
+                proxy_process = \
+                    _start_stdin_to_zmq_log_proxy(args.old_log_inn_path,
+                                                  node_name, 
+                                                  config[node_name],
+                                                  stdout_spewer_config,
+                                                  spewer_process.stdout)
+                # The p1.stdout.close() call after starting the p2 is important 
+                # in order for p1 to receive a SIGPIPE if p2 exits before p1.
+                spewer_process.stdout.close()
+
+                processes.append(spewer_process)
+                processes.append(proxy_process)
+
     halt_event = set_signal_handler()
     start_time = time.time()
     while not halt_event.is_set():
@@ -257,7 +329,7 @@ def main():
 
     log.info("shutting down")
     for process in processes:
-        if process.returncode is not None:
+        if not process.active:
             log.warn("node {0} process {1} already terminated {2}".format(
                      process.node_name,
                      process.program_name,

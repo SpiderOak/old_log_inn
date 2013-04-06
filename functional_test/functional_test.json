@@ -15,6 +15,12 @@
             {
                 "name"      : "log_spewer1",
                 "log_path"  : "node1_log_spewer1.log"
+            }],
+        "stdout_spewers" : [
+            {
+                "spewer_name"      : "stdout_spewer1",
+                "proxy_name"       : "stdout_proxy1",
+                "log_path"         : "node1_stdout_spewer1.log"
             }]
         }
 }

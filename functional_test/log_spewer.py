@@ -12,6 +12,7 @@ from old_log_inn.zmq_push_log_handler import ZMQPushLogHandler
 from old_log_inn.signal_handler import set_signal_handler
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
+_log = logging.getLogger("main")
 
 def _parse_commandline():
     parser = \
@@ -33,11 +34,9 @@ def main():
     args = _parse_commandline()
     _initialize_logging(args.log_path)
 
-    log = logging.getLogger("main")
-
     halt_event = set_signal_handler()
     while not halt_event.is_set():
-        log.info("glort")
+        _log.info("glort")
         halt_event.wait(1.0)
 
     return 0
