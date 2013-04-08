@@ -135,7 +135,8 @@ def _start_zmq_push_pub_forwarder(old_log_inn_path, node_name, node_config):
 def _start_log_spewer(old_log_inn_path,
                       node_name, 
                       node_config,
-                      log_spewer_config):
+                      log_spewer_config,
+                      data_source_address):
 
     program_path = os.path.join(old_log_inn_path, 
                                 "functional_test", 
@@ -143,7 +144,8 @@ def _start_log_spewer(old_log_inn_path,
 
     args = [sys.executable, 
             program_path,
-            "--log-path={0}".format(log_spewer_config["log_path"])]
+            "--log-path={0}".format(log_spewer_config["log_path"]),
+            "--data-source-address={0}".format(data_source_address)]
 
     env = {"PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
            "PYTHONPATH" : os.environ["PYTHONPATH"],}
@@ -153,13 +155,18 @@ def _start_log_spewer(old_log_inn_path,
                              node_name, 
                              log_spewer_config["name"])
 
-def _start_stdout_spewer(old_log_inn_path, node_name, stdout_spewer_config):
+def _start_stdout_spewer(old_log_inn_path, 
+                         node_name, 
+                         stdout_spewer_config, 
+                         data_source_address):
+
     program_path = os.path.join(old_log_inn_path, 
                                 "functional_test", 
                                 "stdout_spewer.py")
 
     args = [sys.executable, 
-            program_path]
+            program_path,
+            "--data-source-address={0}".format(data_source_address)]
 
     env = {"PYTHONPATH" : os.environ["PYTHONPATH"],}
 
@@ -192,6 +199,27 @@ def _start_stdin_to_zmq_log_proxy(old_log_inn_path,
                              stdout_spewer_config["proxy_name"],
                              stdin=stdout_spewer_stdout)
 
+def _start_data_source(old_log_inn_path, data_source_config):
+    """
+    start the global data source
+    """
+    program_path = os.path.join(old_log_inn_path, 
+                                "functional_test", 
+                                "data_source.py")
+    args = [sys.executable, 
+            program_path,
+            "--source-path={0}".format(data_source_config["source_path"]),
+            "--push-socket-address={0}".format(
+                data_source_config["push_socket_address"],
+            "--verbose")]
+
+    stdout_path = "/tmp/data_source.log"
+
+    return _start_subprocess(args, 
+                             None, 
+                             "global", 
+                             "data_source",
+                             stdout=open(stdout_path, "w"))
 def _start_subprocess(args, 
                       env, 
                       node_name, 
@@ -242,11 +270,14 @@ def _check_process_termination(process):
                   stderrdata))
 
 def _poll_processes(processes):
+    inactive_processes = list()
     for process in processes:
         process.poll()
         if process.active and process.returncode is not None:
             _check_process_termination(process)            
             setattr(process, "active", False)
+            inactive_processes.append(process.program_name)
+    return inactive_processes
 
 def main():
     """
@@ -281,6 +312,9 @@ def main():
                 config["global"]["zmq_log_file_logger"])
         processes.append(process)
 
+    data_source_address = \
+        config["global"]["data_source"]["push_socket_address"]
+
     for node_name in node_names:
         process = _start_zmq_push_pub_forwarder(args.old_log_inn_path,
                                                 node_name, 
@@ -292,7 +326,8 @@ def main():
                 process = _start_log_spewer(args.old_log_inn_path,
                                             node_name, 
                                             config[node_name],
-                                            log_spewer_config)
+                                            log_spewer_config,
+                                            data_source_address)
                 processes.append(process)
 
         if "stdout_spewers" in config[node_name]:
@@ -301,7 +336,8 @@ def main():
                 spewer_process = \
                     _start_stdout_spewer(args.old_log_inn_path,
                                          node_name, 
-                                         stdout_spewer_config)
+                                         stdout_spewer_config,
+                                         data_source_address)
                 proxy_process = \
                     _start_stdin_to_zmq_log_proxy(args.old_log_inn_path,
                                                   node_name, 
@@ -315,6 +351,11 @@ def main():
                 processes.append(spewer_process)
                 processes.append(proxy_process)
 
+    # start the data source last, hoping everyone has had time to hook up
+    process = _start_data_source(args.old_log_inn_path,
+                                 config["global"]["data_source"])
+    processes.append(process)
+
     halt_event = set_signal_handler()
     start_time = time.time()
     while not halt_event.is_set():
@@ -324,7 +365,13 @@ def main():
                      elapsed_time))
             halt_event.set()
             break
-        _poll_processes(processes)
+        terminated_subprocesses = _poll_processes(processes)
+
+        # if the data source is done, we are done
+        if "data_source" in terminated_subprocesses:
+            log.info("data_source has terminated, stopping test")
+            halt_event.set()
+
         halt_event.wait(5.0)
 
     log.info("shutting down")

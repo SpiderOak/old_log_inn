@@ -22,7 +22,7 @@ def _parse_commandline():
     parser = \
         argparse.ArgumentParser(description='write log entries at intervals.')
     parser.add_argument("-s", "--data-source-address", 
-                        dest="data-source_address")
+                        dest="data_source_address")
     return parser.parse_args()
 
 def _initialize_logging():
@@ -37,6 +37,8 @@ def main():
     main entry point
     """
     args = _parse_commandline()
+    context = zmq.Context()
+    
     _initialize_logging()
 
     if is_ipc_protocol(args.data_source_address):

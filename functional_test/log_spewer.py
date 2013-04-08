@@ -70,6 +70,10 @@ def main():
                                       log_text_bytes.decode("utf-8")))        
 
     pull_socket.close()
+
+    # we need to shut down logging here to close the log handlers PUSH socket
+    logging.shutdown()  
+     
     context.term()
 
     return 0
