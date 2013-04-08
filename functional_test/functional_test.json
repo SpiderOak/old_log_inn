@@ -8,6 +8,10 @@
          	"add_hostname_to_path" : true
      		}
         },
+        "data_source" : {
+            "source_path" : "/etc/dictionaries-common/words",
+            "push_socket_address" : "ipc:///tmp/data_source.socket"
+        }
     "node01" : {
         "node_pub_socket_address"  : "tcp://127.0.0.1:8001",
         "node_pull_socket_address" : "ipc:///tmp/node01/pull.socket",
