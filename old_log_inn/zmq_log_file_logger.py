@@ -147,6 +147,9 @@ def main():
     main entry point
     """
     args = _parse_commandline()
+    
+    if not os.path.isdir(args.log_dir):
+        os.makedirs(args.log_dir)
 
     _initialize_log(args)
     log = logging.getLogger("main")
@@ -157,9 +160,6 @@ def main():
 
     if is_ipc_protocol(args.zmq_sub_address):
         prepare_ipc_path(args.zmq_sub_address)
-
-    if not os.path.isdir(args.log_dir):
-        os.makedirs(args.log_dir)
 
     identity_bytes = args.zmq_identity.encode("utf-8")
 
