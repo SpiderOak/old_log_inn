@@ -83,7 +83,8 @@ class ZMQPushLogHandler(logging.Handler):
             python LogRecord object
             we use only the string returned by record.getMessage()
         """
-        self._log_line_pusher.push_log_line(record.getMessage())
+        formatted_record = self.format(record)
+        self._log_line_pusher.push_log_line(formatted_record)
         
     def close(self):
         """
