@@ -73,7 +73,37 @@ def _start_zmq_subscription_aggregator(old_log_inn_path, global_config):
                              "zmq_subscription_aggregator",
                              stdout=open(stdout_path, "w"))
 
+def _start_zmq_log_stream_writer(old_log_inn_path, global_config):
+    """
+    start the log stream writer
+    """
+    program_path = os.path.join(old_log_inn_path, 
+                                "old_log_inn", 
+                                "zmq_log_stream_writer.py")
+    args = [sys.executable, 
+            program_path,
+            "--sub-list={0}".format(
+                global_config["aggregate_sub_socket_file"]),
+            "--output-work-dir={0}".format(
+                global_config["log_stream_work_dir"]), 
+            "--output-complete-dir={0}".format(
+                global_config["log_stream_complete_dir"]),
+            "--verbose"
+    ]
+
+    env = {"HOSTNAME"   : global_config["host_name"], 
+           "PYTHONPATH" : os.environ["PYTHONPATH"],}
+
+    stdout_path = "/tmp/zmq_log_stream_writer.log"
+
+    return _start_subprocess(args, 
+                             env, 
+                             "global", 
+                             "zmq_log_stream_writer",
+                             stdout=open(stdout_path, "w"))
+
 def _start_zmq_log_file_logger(old_log_inn_path,  
+                               host_name,
                                sub_socket_address, 
                                logger_config):
     program_path = os.path.join(old_log_inn_path, 
@@ -103,8 +133,11 @@ def _start_zmq_log_file_logger(old_log_inn_path,
     logger_config["add_hostname_to_path"]:            
         args.append("--add-hostname-to-path")
 
+    env = {"HOSTNAME"               : host_name, 
+           "PYTHONPATH" : os.environ["PYTHONPATH"],}
+
     return _start_subprocess(args, 
-                             None, 
+                             env, 
                              "global", 
                              "zmq_log_file_logger")
 
@@ -124,10 +157,13 @@ def _start_zmq_push_pub_forwarder(old_log_inn_path, node_name, node_config):
         if "hwm" in forwarder_config:
             args.append("--hwm={0}".format(forwarder_config["hwm"]))
 
+    env = {"HOSTNAME"   : node_config["host_name"], 
+           "PYTHONPATH" : os.environ["PYTHONPATH"],}
+
     stdout_path = "/tmp/zmq_push_pub_forwarder_{0}.log".format(node_name)
 
     return _start_subprocess(args, 
-                             None, 
+                             env, 
                              node_name, 
                              "zmq_push_pub_forwarder",
                              stdout=open(stdout_path, "w"))
@@ -147,7 +183,8 @@ def _start_log_spewer(old_log_inn_path,
             "--log-path={0}".format(log_spewer_config["log_path"]),
             "--data-source-address={0}".format(data_source_address)]
 
-    env = {"PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
+    env = {"HOSTNAME"               : node_config["host_name"], 
+           "PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
            "PYTHONPATH" : os.environ["PYTHONPATH"],}
 
     return _start_subprocess(args, 
@@ -190,7 +227,8 @@ def _start_stdin_to_zmq_log_proxy(old_log_inn_path,
             program_path,
             "--log-path={0}".format(stdout_spewer_config["log_path"])]
 
-    env = {"PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
+    env = {"HOSTNAME"               : node_config["host_name"], 
+           "PYTHON_ZMQ_LOG_HANDLER" : node_config["node_pull_socket_address"],
            "PYTHONPATH" : os.environ["PYTHONPATH"],}
 
     return _start_subprocess(args, 
@@ -304,10 +342,16 @@ def main():
                                                  config["global"])
     processes.append(process)
 
+    process = _start_zmq_log_stream_writer(args.old_log_inn_path,
+                                           config["global"])
+    processes.append(process)
+
+
     if "zmq_log_file_logger" in config["global"]:
         process = \
             _start_zmq_log_file_logger(
                 args.old_log_inn_path,
+                config["global"]["host_name"],
                 config["global"]["aggregate_pub_socket_address"],
                 config["global"]["zmq_log_file_logger"])
         processes.append(process)

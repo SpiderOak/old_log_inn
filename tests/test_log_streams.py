@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-test_zmq_push_log_hander.py
+test_stream_writer.py
 
 
 """
-import json
 import logging
 import os
 import sys
@@ -12,18 +11,8 @@ try:
     import unittest2 as unittest
 except ImportError:
     import unittest
-import zlib
 
-import zmq
-
-from old_log_inn.zmq_push_log_handler import ZMQPushLogHandler
-
-_test_addresses = ["ipc:///tmp/sockets/test1.socket", 
-                   "tcp://127.0.0.1:4000",
-                   "ipc:///tmp/sockets/test2.socket"]
-_poll_timeout = 5 * 1000
-
-class TestZMQPushLogHandler(unittest.TestCase):
+class TestLogStreamWriter(unittest.TestCase):
     """
     """
     def setUp(self):
@@ -43,7 +32,7 @@ class TestZMQPushLogHandler(unittest.TestCase):
 
         # create the handler first so it can do the work of preparing
         # the sockets
-        handler = ZMQPushLogHandler(log_path, zmq_context=self._zmq_context)
+        handler = ZMQPushLogHandler(log_path, context=self._zmq_context)
         logging.root.addHandler(handler)
         logging.root.setLevel(logging.DEBUG)
 

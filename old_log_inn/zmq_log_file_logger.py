@@ -26,6 +26,7 @@ from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
 from old_log_inn.signal_handler import set_signal_handler
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
+_hostname = os.environ.get("HOSTNAME", socket.gethostname())
 
 class DummyLogRecord(object):
     """
@@ -44,7 +45,7 @@ def _parse_commandline():
         argparse.ArgumentParser(description='subscription_aggregator')
     parser.add_argument("--sub", dest="zmq_sub_address")
     parser.add_argument("--zmq-identity", dest="zmq_identity",
-                        default="file_logger.{0}".format(socket.gethostname()))
+                        default="file_logger.{0}".format(_hostname))
     parser.add_argument("--from-files", dest="from_files")
     parser.add_argument("--output",  dest="log_dir")
     parser.add_argument("--host-regexp", dest="host_regexp")
@@ -147,7 +148,7 @@ def main():
     main entry point
     """
     args = _parse_commandline()
-    
+
     if not os.path.isdir(args.log_dir):
         os.makedirs(args.log_dir)
 

@@ -8,6 +8,7 @@ and re-publish every message on a ZMQ Pub socket.
 import argparse
 import errno
 import logging
+import os
 import socket
 import sys
 
@@ -18,13 +19,14 @@ from old_log_inn.signal_handler import set_signal_handler
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 _log = logging.getLogger("main") 
+_hostname = os.environ.get("HOSTNAME", socket.gethostname())
 
 def _parse_commandline():
     parser = \
         argparse.ArgumentParser(description='push_pub_forwarder')
     parser.add_argument("--pull", dest="zmq_pull_socket_address")
     parser.add_argument("--pub", dest="zmq_pub_socket_address")
-    parser.add_argument("--topic", dest="topic", default=socket.gethostname())
+    parser.add_argument("--topic", dest="topic", default=_hostname)
     parser.add_argument("--hwm", dest="hwm", type=int, default=20000)
     parser.add_argument("--verbose", dest="verbose", action="store_true", 
                         default=False)
@@ -40,7 +42,7 @@ def _initialize_logging(verbose):
     handler.setFormatter(formatter)
     logging.root.addHandler(handler)
     log_level = (logging.DEBUG if verbose else logging.WARN)
-    logging.root.setLevel(logging.DEBUG)
+    logging.root.setLevel(log_level)
 
 def main():
     """

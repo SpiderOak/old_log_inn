@@ -17,6 +17,8 @@ import zmq
 
 from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
 
+_hostname = os.environ.get("HOSTNAME", socket.gethostname())
+
 class LogLinePusher(object):
     """
     an object that pushes individual log lines over zeromq
@@ -34,7 +36,6 @@ class LogLinePusher(object):
             Used as a key to identify this log.
         """
         self._log_path = log_path
-        self._hostname = socket.gethostname()
         self._nodename = os.environ.get("ZMQ_LOG_NODE_NAME")
         self._uuid = uuid.uuid4()
         self._sequence = 0
@@ -54,7 +55,7 @@ class LogLinePusher(object):
         """
         self._sequence += 1
 
-        header = {"hostname"    : self._hostname,
+        header = {"hostname"    : _hostname,
                   "uuid"        : self._uuid.hex,
                   "sequence"    : self._sequence,
                   "pid"         : os.getpid(),
