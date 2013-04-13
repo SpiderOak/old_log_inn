@@ -1,60 +1,98 @@
 # -*- coding: utf-8 -*-
 """
-test_stream_writer.py
-
-
+test_log_streams.py
 """
+from datetime import datetime, timedelta
 import logging
 import os
+import os.path
+import shutil
 import sys
 try:
     import unittest2 as unittest
 except ImportError:
     import unittest
 
+from old_log_inn.log_stream import _compute_timestamp, \
+    LogStreamWriter, \
+    LogStreamReader 
+
+_test_dir = "/tmp/test_log_streams"
+_output_work_dir = os.path.join(_test_dir, "output_work_dir")
+_output_complete_dir = os.path.join(_test_dir, "output_complete_dir")
+_time_test_list = [
+    (5, datetime(2013, 1, 1, hour=12, minute=13, second=48), 
+     "20130101121345", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=14), "20130101121400", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=15), "20130101121500", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=16, second=56), 
+     "20130101121655", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=17), "20130101121700", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=18), "20130101121800", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=19), "20130101121900", ),
+    (5, datetime(2013, 1, 1, hour=12, minute=20), "20130101122000", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=13), "20130101121000", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=14, second=2), 
+     "20130101121000", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=15), "20130101121500", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=16), "20130101121500", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=17), "20130101121500", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=18), "20130101121500", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=19), "20130101121500", ),
+    (300, datetime(2013, 1, 1, hour=12, minute=20), "20130101122000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=13), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=14), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=15), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=16), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=17), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=18), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=19), "20130101120000", ),
+    (3600, datetime(2013, 1, 1, hour=12, minute=20), "20130101120000", ),
+]
+
 class TestLogStreamWriter(unittest.TestCase):
     """
+    test LogStreamWriter and LogStreamReader
     """
     def setUp(self):
-        self._zmq_context = zmq.Context()
-
+        self.tearDown()
+        os.mkdir(_test_dir)
+        os.mkdir(_output_work_dir)
+        os.mkdir(_output_complete_dir)
+        
     def tearDown(self):
-        if hasattr(self, "_zmq_context") and self._zmq_context is not None:
-            self._zmq_context.term()
-            self._zmq_context = None
+        if os.path.isdir(_test_dir):
+            shutil.rmtree(_test_dir)
 
-    def test_single_socket(self):
+    def test_compute_timestmap(self):
         """
-        test log handler functionality using a single PULL socket
+        test writing a sin
         """
-        os.environ["PYTHON_ZMQ_LOG_HANDLER"] = _test_addresses[0]
-        log_path = "aaa/bbb/ccc.log"
+        for granularity, time_value, expected_timestamp in _time_test_list:
+            timestamp = _compute_timestamp(timedelta(seconds=granularity), 
+                                           time_value)
+            self.assertEqual(timestamp, expected_timestamp, (granularity, 
+                             time_value, ))
 
-        # create the handler first so it can do the work of preparing
-        # the sockets
-        handler = ZMQPushLogHandler(log_path, context=self._zmq_context)
-        logging.root.addHandler(handler)
-        logging.root.setLevel(logging.DEBUG)
+    def test_single_item(self):
+        """
+        test writing a single event and reading it back
+        """
+        granularity = 300
+        header = "aaa"
+        data = "bbb"
 
-        # listen on a single PULL socket
-        pull_socket = self._zmq_context.socket(zmq.PULL)
-        pull_socket.bind(_test_addresses[0])
+        writer = LogStreamWriter(granularity, 
+                                 _output_work_dir, 
+                                 _output_complete_dir)
 
-        poller = zmq.Poller()
-        poller.register(pull_socket, zmq.POLLIN)
+        writer.write(header, data)
 
-        log = logging.getLogger("test")
-        log.info("pork")
+        reader = LogStreamReader(_output_complete_dir)
 
-        result_list = poller.poll(timeout=_poll_timeout)
-        self.assertEqual(len(result_list), 1)
-
-        compressed_header = pull_socket.recv(zmq.NOBLOCK)
-        self.assertTrue(pull_socket.rcvmore)        
-        compressed_body = pull_socket.recv()
-
-        header = json.loads(zlib.decompress(compressed_header))
-        body = zlib.decompress(compressed_body)
+        read_header, read_body = reader.next()
+        self.assertEqual(read_header, header)
+        self.assertEqual(read_body, body)
 
 if __name__ == "__main__":
     unittest.main()
