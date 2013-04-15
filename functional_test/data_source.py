@@ -66,7 +66,7 @@ def main():
             push_socket.send(str(line_count).encode("utf-8"), zmq.SNDMORE)
             push_socket.send(line[:-1].encode("utf-8"))
 
-    _log.debug("shutting down")
+    _log.debug("shutting down: published {0} lines".format(line_count))
     push_socket.close()
     context.term()
     return 0

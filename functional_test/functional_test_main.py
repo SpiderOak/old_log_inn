@@ -66,12 +66,15 @@ def _start_zmq_subscription_aggregator(old_log_inn_path, global_config):
     ]
 
     stdout_path = "/tmp/zmq_subscription_aggregator.log"
+    stdout_file = open(stdout_path, "w")
 
-    return _start_subprocess(args, 
-                             None, 
-                             "global", 
-                             "zmq_subscription_aggregator",
-                             stdout=open(stdout_path, "w"))
+    process = _start_subprocess(args, 
+                                None, 
+                                "global", 
+                                "zmq_subscription_aggregator",
+                                stdout=stdout_file)
+    stdout_file.close()
+    return process
 
 def _start_zmq_log_stream_writer(old_log_inn_path, global_config):
     """
@@ -95,12 +98,15 @@ def _start_zmq_log_stream_writer(old_log_inn_path, global_config):
            "PYTHONPATH" : os.environ["PYTHONPATH"],}
 
     stdout_path = "/tmp/zmq_log_stream_writer.log"
+    stdout_file = open(stdout_path, "w")
 
-    return _start_subprocess(args, 
-                             env, 
-                             "global", 
-                             "zmq_log_stream_writer",
-                             stdout=open(stdout_path, "w"))
+    process = _start_subprocess(args, 
+                                env, 
+                                "global", 
+                                "zmq_log_stream_writer",
+                                stdout=stdout_file)
+    stdout_file.close()
+    return process
 
 def _start_zmq_log_file_logger(old_log_inn_path,  
                                host_name,
@@ -161,12 +167,15 @@ def _start_zmq_push_pub_forwarder(old_log_inn_path, node_name, node_config):
            "PYTHONPATH" : os.environ["PYTHONPATH"],}
 
     stdout_path = "/tmp/zmq_push_pub_forwarder_{0}.log".format(node_name)
+    stdout_file = open(stdout_path, "w")
 
-    return _start_subprocess(args, 
-                             env, 
-                             node_name, 
-                             "zmq_push_pub_forwarder",
-                             stdout=open(stdout_path, "w"))
+    process = _start_subprocess(args, 
+                                env, 
+                                node_name, 
+                                "zmq_push_pub_forwarder",
+                                stdout=stdout_file)
+    stdout_file.close()
+    return process
 
 def _start_log_spewer(old_log_inn_path,
                       node_name, 
@@ -248,16 +257,20 @@ def _start_data_source(old_log_inn_path, data_source_config):
             program_path,
             "--source-path={0}".format(data_source_config["source_path"]),
             "--push-socket-address={0}".format(
-                data_source_config["push_socket_address"],
-            "--verbose")]
+                data_source_config["push_socket_address"]),
+            "--verbose"]
 
     stdout_path = "/tmp/data_source.log"
+    stdout_file = open(stdout_path, "w")
 
-    return _start_subprocess(args, 
-                             None, 
-                             "global", 
-                             "data_source",
-                             stdout=open(stdout_path, "w"))
+    process = _start_subprocess(args, 
+                                None, 
+                                "global", 
+                                "data_source",
+                                stdout=stdout_file)
+    stdout_file.close()
+    return process
+
 def _start_subprocess(args, 
                       env, 
                       node_name, 
@@ -400,6 +413,7 @@ def main():
                                  config["global"]["data_source"])
     processes.append(process)
 
+    data_source_finished = False
     halt_event = set_signal_handler()
     start_time = time.time()
     while not halt_event.is_set():
@@ -413,12 +427,15 @@ def main():
 
         # if the data source is done, we are done
         if "data_source" in terminated_subprocesses:
-            log.info("data_source has terminated, stopping test")
-            halt_event.set()
+            log.info("data_source has terminated")
+            data_source_finished = True            
 
         halt_event.wait(5.0)
 
     log.info("shutting down")
+    if not data_source_finished:
+        log.warn("data source has not finished")
+        
     for process in processes:
         if not process.active:
             log.warn("node {0} process {1} already terminated {2}".format(

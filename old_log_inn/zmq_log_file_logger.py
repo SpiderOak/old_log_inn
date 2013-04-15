@@ -57,7 +57,7 @@ def _parse_commandline():
     parser.add_argument("--logfile-max-size", dest="logfile_max_size",
                         type=int, default=1024 ** 2)
     parser.add_argument("--logfile-keep", dest="logfile_keep", 
-                        type=int, default=0)
+                        type=int, default=100)
 
     return parser.parse_args()
 

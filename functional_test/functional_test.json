@@ -11,7 +11,7 @@
          	"add_hostname_to_path" : true
      		},
         "data_source" : {
-            "source_path" : "/etc/dictionaries-common/words",
+            "source_path" : "/usr/share/dict/words",
             "push_socket_address" : "ipc:///tmp/data_source.socket"
             }
         },
