@@ -111,10 +111,11 @@ def main():
                                     args.output_complete_dir)
 
     halt_event = set_signal_handler()
+    polling_intgerval_milliseconds = args.polling_interval * 1000
     while not halt_event.is_set():
 
         try:
-            result_list = poller.poll(args.polling_interval)
+            result_list = poller.poll(polling_intgerval_milliseconds)
         except zmq.ZMQError:
             instance = sys.exc_info()[1]
             if instance.errno == errno.EINTR and halt_event.is_set():
