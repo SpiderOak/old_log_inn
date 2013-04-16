@@ -20,6 +20,8 @@ from old_log_inn.log_stream import _compute_timestamp, \
     generate_log_stream_from_directory
 
 _test_dir = "/tmp/test_log_streams"
+_test_prefix = "logs."
+_test_suffix = ".gz"
 _output_work_dir = os.path.join(_test_dir, "output_work_dir")
 _output_complete_dir = os.path.join(_test_dir, "output_complete_dir")
 _time_test_list = [
@@ -81,14 +83,16 @@ class TestLogStreamWriter(unittest.TestCase):
         test writing a single event and reading it back
         """
         granularity = 5
-        header = "aaa"
-        data = "bbb"
+        header = b"aaa"
+        data = b"bbb"
 
         # we expect the completed directory to be empty
         completed_list = os.listdir(_output_complete_dir)
         self.assertEqual(len(completed_list), 0, completed_list)
 
-        writer = LogStreamWriter(granularity, 
+        writer = LogStreamWriter(_test_prefix,
+                                 _test_suffix,
+                                 granularity, 
                                  _output_work_dir, 
                                  _output_complete_dir)
 
@@ -117,7 +121,7 @@ class TestLogStreamWriter(unittest.TestCase):
         test writing multiple events to a multiple files and reading them back
         """
         granularity = 5
-        events = [("aaa", "111"), ("bbb", "222"), ("ccc", "333"), ]
+        events = [(b"aaa", b"111"), (b"bbb", b"222"), (b"ccc", b"333"), ]
 
         completed_file_count = 0
 
@@ -127,7 +131,9 @@ class TestLogStreamWriter(unittest.TestCase):
                          completed_file_count, 
                          completed_list)
 
-        writer = LogStreamWriter(granularity, 
+        writer = LogStreamWriter(_test_prefix,
+                                 _test_suffix,
+                                 granularity, 
                                  _output_work_dir, 
                                  _output_complete_dir)
 

@@ -63,6 +63,10 @@ class LogStreamWriter(object):
         self._output_gzip_file = None
 
     def write(self, header, data):
+        """
+        write header and data to the stream in a formatted frame
+        both header and data must be of type bytes
+        """
         timestamp = self._compute_current_timestamp()
         self.check_for_rollover(timestamp)
 
@@ -74,8 +78,8 @@ class LogStreamWriter(object):
                             len(header),
                             len(data))
         self._output_gzip_file.write(frame)
-        self._output_gzip_file.write(header.encode("utf-8"))
-        self._output_gzip_file.write(data.encode("utf-8"))
+        self._output_gzip_file.write(header)
+        self._output_gzip_file.write(data)
         self._output_file.flush()
 
     def check_for_rollover(self, timestamp=None):
@@ -147,7 +151,7 @@ def generate_log_stream_from_file(path):
         raise LogStreamError("Invalid data read {0} expected {1}".format(
             len(data), data_size))
 
-    yield header.decode("utf-8"), data.decode("utf-8")
+    yield header, data
 
 def generate_log_stream_from_directory(directory_name):
     """
