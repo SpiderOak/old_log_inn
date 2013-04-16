@@ -23,12 +23,13 @@ import os
 import os.path
 import socket
 import sys
+import zlib
 
 import zmq
 
 from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
 from old_log_inn.signal_handler import set_signal_handler
-from old_log_inn.log_stream import 
+from old_log_inn.log_stream import LogStreamWriter
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 _log = logging.getLogger("main") 
@@ -39,6 +40,8 @@ def _parse_commandline():
     parser.add_argument("--sub-list", dest="sub_list_path")
     parser.add_argument("--zmq-identity", dest="zmq_identity", 
                         default="log_aggregator.{0}".format(_hostname))
+    parser.add_argument("--polling-interval", dest="polling_interval", 
+                        type=float, default=1.0)
     parser.add_argument("--granularity", dest="granularity", type=int, 
                         default=300)
     parser.add_argument("--output-prefix", dest="output_prefix", 
@@ -111,27 +114,33 @@ def main():
     while not halt_event.is_set():
 
         try:
-            result_list = poller.poll()
+            result_list = poller.poll(args.polling_interval)
         except zmq.ZMQError:
             instance = sys.exc_info()[1]
             if instance.errno == errno.EINTR and halt_event.is_set():
                 break
             raise
 
+        if len(result_list) == 0:
+            stream_writer.check_for_rollover()
+            continue
+
         for sub_socket, event in result_list: 
             assert event == zmq.POLLIN, event
 
-            _log.debug("traffic on socket {0}".format(sub_socket))
-
             # we expect topic, compressed header, compressed body
-            topic = sub_socket.recv()
+            _topic = sub_socket.recv()
             assert sub_socket.rcvmore
-            header = sub_socket.recv()
+            compressed_header = sub_socket.recv()
             assert sub_socket.rcvmore
-            body = sub_socket.recv()
+            compressed_data = sub_socket.recv()
             assert not sub_socket.rcvmore
 
             # send out what we got in
+            header = zlib.decompress(compressed_header)
+            data = zlib.decompress(compressed_data)
+
+            stream_writer.write(header, data)
 
     _log.debug("shutting down")
     for sub_socket in sub_socket_list:

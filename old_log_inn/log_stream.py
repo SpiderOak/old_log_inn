@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from gzip import GzipFile
 import os
 import os.path
-import re
 import struct
 
 class LogStreamError(Exception):
@@ -51,6 +50,11 @@ class LogStreamWriter(object):
     def __init__(self, prefix, suffix, granularity, work_dir, complete_dir):
         self._prefix = prefix
         self._suffix = suffix
+
+        if (granularity > 3600) or (granularity < 5) or \
+            (3600 % granularity != 0):
+            raise ValueError("Invalid granularity {0}".format(granularity))
+
         self._granularity = timedelta(seconds=granularity)
 
         self._work_dir = work_dir
@@ -120,7 +124,7 @@ class LogStreamWriter(object):
     def _open_output_file(self, timestamp):
         self._output_timestamp = timestamp
         self._output_file_name = \
-            ".".join([self._prefix, timestamp, self._suffix, ])
+            "".join([self._prefix, timestamp, self._suffix, ])
         work_path = os.path.join(self._work_dir, self._output_file_name)
         self._output_file = open(work_path, "wb")
         self._output_gzip_file = GzipFile(fileobj=self._output_file)
