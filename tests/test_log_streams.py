@@ -16,7 +16,8 @@ except ImportError:
 
 from old_log_inn.log_stream import _compute_timestamp, \
     LogStreamWriter, \
-    generate_log_stream_from_file 
+    generate_log_stream_from_file, \
+    generate_log_stream_from_directory
 
 _test_dir = "/tmp/test_log_streams"
 _output_work_dir = os.path.join(_test_dir, "output_work_dir")
@@ -108,6 +109,45 @@ class TestLogStreamWriter(unittest.TestCase):
         read_header, read_data = next(log_stream)
         self.assertEqual(read_header, header)
         self.assertEqual(read_data, data)
+
+        self.assertRaises(StopIteration, next, log_stream)
+
+    def test_multiple_files(self):
+        """
+        test writing multiple events to a multiple files and reading them back
+        """
+        granularity = 5
+        events = [("aaa", "111"), ("bbb", "222"), ("ccc", "333"), ]
+
+        completed_file_count = 0
+
+        # we expect the completed directory to be empty
+        completed_list = os.listdir(_output_complete_dir)
+        self.assertEqual(len(completed_list), 
+                         completed_file_count, 
+                         completed_list)
+
+        writer = LogStreamWriter(granularity, 
+                                 _output_work_dir, 
+                                 _output_complete_dir)
+
+        for header, data in events:
+            writer.write(header, data)
+
+            # wait for the current file to roll over
+            time.sleep(granularity+1)
+            writer.check_for_rollover()
+
+            # we expect a new file in the completed directory
+            completed_file_count += 1
+            completed_list = os.listdir(_output_complete_dir)
+            self.assertEqual(len(completed_list), 
+                             completed_file_count, 
+                             completed_list)
+
+        log_stream = generate_log_stream_from_directory(_output_complete_dir)
+        for event, actual in zip(events, log_stream):
+            self.assertEqual(event, actual, (event, actual, ))
 
         self.assertRaises(StopIteration, next, log_stream)
 

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from gzip import GzipFile
 import os
 import os.path
+import re
 import struct
 
 class LogStreamError(Exception):
@@ -16,6 +17,7 @@ class LogStreamError(Exception):
 _frame_format = "!BII"
 _frame_size = struct.calcsize(_frame_format)
 _frame_protocol_version = 1
+_valid_filename_re = re.compile("\d{14}.gz")
 
 def _compute_timestamp(granularity, time_value):
     """
@@ -23,7 +25,7 @@ def _compute_timestamp(granularity, time_value):
     past noon on January 1, then it will have output files with timestamps
     truncated in 5 minute intervals, like so:
 
-        20130101121000  # 12:10pm, because 12:13 trunactes to 12:20
+        20130101121000  # 12:10pm, because 12:13 truncates to 12:20
         20130101121500
         20130101122000
 
@@ -118,6 +120,9 @@ class LogStreamWriter(object):
         self._output_gzip_file = GzipFile(fileobj=self._output_file)
 
 def generate_log_stream_from_file(path):
+    """
+    yield a sequence of (header, data) tuples from a named file
+    """
     input_gzip_file = GzipFile(filename=path)
 
     packed_frame = input_gzip_file.read(_frame_size)
@@ -141,3 +146,15 @@ def generate_log_stream_from_file(path):
             len(data), data_size))
 
     yield header.decode("utf-8"), data.decode("utf-8")
+
+def generate_log_stream_from_directory(directory_name):
+    """
+    yield a sequence of (header, data) tuples from the files in a directory
+    """
+    file_names = filter(lambda f: _valid_filename_re.match(f) is not None,
+                        os.listdir(directory_name))
+    for file_name in sorted(file_names):
+        path = os.path.join(directory_name, file_name)
+        # this could be 'yield from' in Python 3.3
+        for header, data in generate_log_stream_from_file(path):
+            yield  header, data       
