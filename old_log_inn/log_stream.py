@@ -6,7 +6,12 @@ objects for managing log streams: LogStreamWriter, LogStreamReader
 """
 from datetime import datetime, timedelta
 from gzip import GzipFile
+import os
+import os.path
 import struct
+
+class LogStreamError(Exception):
+    pass
 
 _frame_format = "!BII"
 _frame_size = struct.calcsize(_frame_format)
@@ -43,7 +48,7 @@ def _compute_timestamp(granularity, time_value):
 
 class LogStreamWriter(object):
     def __init__(self, granularity, work_dir, complete_dir):
-        self._granularity = timdelta(seconds=granularity)
+        self._granularity = timedelta(seconds=granularity)
 
         self._work_dir = work_dir
         self._complete_dir = complete_dir
@@ -66,9 +71,9 @@ class LogStreamWriter(object):
                             len(header),
                             len(data))
         self._output_gzip_file.write(frame)
-        self._output_gzip_file.write(header)
-        self._output_gzip_file.write(data)
-        self.output_file.flush()
+        self._output_gzip_file.write(header.encode("utf-8"))
+        self._output_gzip_file.write(data.encode("utf-8"))
+        self._output_file.flush()
 
     def check_for_rollover(self, timestamp=None):
         """
@@ -81,7 +86,7 @@ class LogStreamWriter(object):
         if timestamp is None:
             timestamp = self._compute_current_timestamp()
 
-        if timestamp != self._output_file_timestamp:
+        if timestamp != self._output_timestamp:
             self._close_current_file()
 
     def _compute_current_timestamp(self):
@@ -107,14 +112,32 @@ class LogStreamWriter(object):
 
     def _open_output_file(self, timestamp):
         self._output_timestamp = timestamp
-        self._output_file_name = ".".join(timestamp, "gz")
+        self._output_file_name = ".".join([timestamp, "gz", ])
         work_path = os.path.join(self._work_dir, self._output_file_name)
         self._output_file = open(work_path, "wb")
         self._output_gzip_file = GzipFile(fileobj=self._output_file)
 
-class LogStreamReader(object):
-    def __init__(self, stream_dir):
-        self._stream_dir = stream_dir
+def generate_log_stream_from_file(path):
+    input_gzip_file = GzipFile(filename=path)
 
-    def next(self):
-        return None, None
+    packed_frame = input_gzip_file.read(_frame_size)
+    if len(packed_frame) < _frame_size:
+        raise StopIteration()
+
+    protocol_version, header_size, data_size = struct.unpack(_frame_format,
+                                                             packed_frame)
+    if protocol_version != _frame_protocol_version:
+        raise LogStreamError("Invalid protocol {0} expected {1}".format(
+            protocol_version, _frame_protocol_version))
+
+    header = input_gzip_file.read(header_size)
+    if len(header) != header_size:
+        raise LogStreamError("Invalid header read {0} expected {1}".format(
+            len(header), header_size))
+
+    data = input_gzip_file.read(data_size)
+    if len(data) != data_size:
+        raise LogStreamError("Invalid data read {0} expected {1}".format(
+            len(data), data_size))
+
+    yield header.decode("utf-8"), data.decode("utf-8")

@@ -8,6 +8,7 @@ import os
 import os.path
 import shutil
 import sys
+import time
 try:
     import unittest2 as unittest
 except ImportError:
@@ -15,7 +16,7 @@ except ImportError:
 
 from old_log_inn.log_stream import _compute_timestamp, \
     LogStreamWriter, \
-    LogStreamReader 
+    generate_log_stream_from_file 
 
 _test_dir = "/tmp/test_log_streams"
 _output_work_dir = os.path.join(_test_dir, "output_work_dir")
@@ -78,9 +79,13 @@ class TestLogStreamWriter(unittest.TestCase):
         """
         test writing a single event and reading it back
         """
-        granularity = 300
+        granularity = 5
         header = "aaa"
         data = "bbb"
+
+        # we expect the completed directory to be empty
+        completed_list = os.listdir(_output_complete_dir)
+        self.assertEqual(len(completed_list), 0, completed_list)
 
         writer = LogStreamWriter(granularity, 
                                  _output_work_dir, 
@@ -88,11 +93,23 @@ class TestLogStreamWriter(unittest.TestCase):
 
         writer.write(header, data)
 
-        reader = LogStreamReader(_output_complete_dir)
+        # wait for the current file to roll over
+        time.sleep(granularity+1)
+        writer.check_for_rollover()
 
-        read_header, read_body = reader.next()
+        # we expect a single file in the completed directory
+        completed_list = os.listdir(_output_complete_dir)
+        self.assertEqual(len(completed_list), 1, completed_list)
+
+        stream_file_path = os.path.join(_output_complete_dir, 
+                                        completed_list[0]) 
+        log_stream = generate_log_stream_from_file(stream_file_path)
+
+        read_header, read_data = next(log_stream)
         self.assertEqual(read_header, header)
-        self.assertEqual(read_body, body)
+        self.assertEqual(read_data, data)
+
+        self.assertRaises(StopIteration, next, log_stream)
 
 if __name__ == "__main__":
     unittest.main()
