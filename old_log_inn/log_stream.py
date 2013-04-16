@@ -17,7 +17,6 @@ class LogStreamError(Exception):
 _frame_format = "!BII"
 _frame_size = struct.calcsize(_frame_format)
 _frame_protocol_version = 1
-_valid_filename_re = re.compile("\d{14}.gz")
 
 def _compute_timestamp(granularity, time_value):
     """
@@ -49,7 +48,9 @@ def _compute_timestamp(granularity, time_value):
     return timestamp_value.strftime("%Y%m%d%H%M%S")
 
 class LogStreamWriter(object):
-    def __init__(self, granularity, work_dir, complete_dir):
+    def __init__(self, prefix, suffix, granularity, work_dir, complete_dir):
+        self._prefix = prefix
+        self._suffix = suffix
         self._granularity = timedelta(seconds=granularity)
 
         self._work_dir = work_dir
@@ -114,7 +115,8 @@ class LogStreamWriter(object):
 
     def _open_output_file(self, timestamp):
         self._output_timestamp = timestamp
-        self._output_file_name = ".".join([timestamp, "gz", ])
+        self._output_file_name = \
+            ".".join([self._prefix, timestamp, self._suffix, ])
         work_path = os.path.join(self._work_dir, self._output_file_name)
         self._output_file = open(work_path, "wb")
         self._output_gzip_file = GzipFile(fileobj=self._output_file)
@@ -151,9 +153,7 @@ def generate_log_stream_from_directory(directory_name):
     """
     yield a sequence of (header, data) tuples from the files in a directory
     """
-    file_names = filter(lambda f: _valid_filename_re.match(f) is not None,
-                        os.listdir(directory_name))
-    for file_name in sorted(file_names):
+    for file_name in sorted(os.listdir(directory_name)):
         path = os.path.join(directory_name, file_name)
         # this could be 'yield from' in Python 3.3
         for header, data in generate_log_stream_from_file(path):

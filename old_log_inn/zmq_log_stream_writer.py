@@ -28,6 +28,7 @@ import zmq
 
 from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
 from old_log_inn.signal_handler import set_signal_handler
+from old_log_inn.log_stream import 
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 _log = logging.getLogger("main") 
@@ -99,6 +100,12 @@ def main():
         sub_socket.connect(sub_socket_address)
         poller.register(sub_socket, zmq.POLLIN)
         sub_socket_list.append(sub_socket)
+
+    stream_writer = LogStreamWriter(args.output_prefix,
+                                    args.output_suffix,
+                                    args.granularity,
+                                    args.output_work_dir,
+                                    args.output_complete_dir)
 
     halt_event = set_signal_handler()
     while not halt_event.is_set():
