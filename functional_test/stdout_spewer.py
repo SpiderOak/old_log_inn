@@ -36,6 +36,7 @@ def main():
     """
     main entry point
     """
+    returncode = 0
     args = _parse_commandline()
     context = zmq.Context()
     
@@ -64,13 +65,20 @@ def main():
         log_text_bytes = pull_socket.recv()
         assert not pull_socket.rcvmore
 
-        _log.info("{0:08} {1}".format(line_number, 
-                                      log_text_bytes.decode("utf-8")))        
+        # 2013-04-15 dougfort -- the logging StreamHandler really wants
+        # ascii, and it goes into an endless exception loop if it
+        # gets non ascii characters in utf-8
+        try:
+            log_text = log_text_bytes.decode("ascii")
+        except Exception:
+            log_text = "??? not ascii ???"
+        
+        _log.info("{0:08} {1}".format(line_number, log_text))
 
     pull_socket.close()
     context.term()
 
-    return 0
+    return returncode
 
 if __name__ == "__main__":
     sys.exit(main())
