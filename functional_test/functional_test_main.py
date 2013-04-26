@@ -23,6 +23,8 @@ def _parse_commandline():
     parser.add_argument("-d", "--duration", dest="duration", type=int, 
                         default=30)
     parser.add_argument("-o", "--old-log-inn-path", dest="old_log_inn_path")
+    parser.add_argument("-w", "--directory-wormhole-path", 
+                        dest="directory_wormhole_path")
     return parser.parse_args()
 
 def _initialize_logging(log_path):
@@ -51,29 +53,41 @@ def _constuct_aggregate_sub_socket_file(config, node_names):
             address = config[node_name]["node_pub_socket_address"]
             output_file.write("{0}\n".format(address))
 
-def _start_zmq_subscription_aggregator(old_log_inn_path, global_config):
+def _start_directory_wormhole(directory_wormhole_path, global_config):
     """
-    start the global aggregator
+    start the directory_wormhole
     """
-    program_path = os.path.join(old_log_inn_path, 
-                                "old_log_inn", 
-                                "zmq_subscription_aggregator.py")
+    directory_wormhole_config = global_config["directory_wormhole"]
+    log_path = "/tmp/directory_wormhole.log"
+    program_path = os.path.join(directory_wormhole_path, 
+                                "directory-wormhole-main.py")
+
     args = [sys.executable, 
             program_path,
-            "--sub-list={0}".format(global_config["aggregate_sub_socket_file"]),
-            "--pub={0}".format(global_config["aggregate_pub_socket_address"],
-            "--verbose")
-    ]
+            "--log={0}".format(log_path),
+            "--watch={0}".format(global_config["log_stream_complete_dir"]),
+            "--collection={0}".format(
+                directory_wormhole_config["collection_name"]),
+            "--verbose"]
 
-    stdout_path = "/tmp/zmq_subscription_aggregator.log"
-    stdout_file = open(stdout_path, "w")
+    if "nimbusio_identity" in directory_wormhole_config:
+        args.append("--identity={0}".format(
+                    directory_wormhole_config["nimbusio_identity"]))
+
+    env = { "HOSTNAME"   : global_config["host_name"], 
+            "NIMBUSIO_CONNECTION_TIMEOUT" : 
+                os.environ["NIMBUSIO_CONNECTION_TIMEOUT"],
+            "NIMBUS_IO_SERVICE_PORT" : os.environ["NIMBUS_IO_SERVICE_PORT"],
+            "NIMBUS_IO_SERVICE_HOST" : os.environ["NIMBUS_IO_SERVICE_HOST"],
+            "NIMBUS_IO_SERVICE_DOMAIN" : 
+                os.environ["NIMBUS_IO_SERVICE_DOMAIN"],
+            "NIMBUS_IO_SERVICE_SSL" : os.environ["NIMBUS_IO_SERVICE_SSL"],
+            "PYTHONPATH" : os.environ["PYTHONPATH"],}
 
     process = _start_subprocess(args, 
-                                None, 
+                                env, 
                                 "global", 
-                                "zmq_subscription_aggregator",
-                                stdout=stdout_file)
-    stdout_file.close()
+                                "directory_wormhole")
     return process
 
 def _start_zmq_log_stream_writer(old_log_inn_path, global_config):
@@ -104,6 +118,31 @@ def _start_zmq_log_stream_writer(old_log_inn_path, global_config):
                                 env, 
                                 "global", 
                                 "zmq_log_stream_writer",
+                                stdout=stdout_file)
+    stdout_file.close()
+    return process
+
+def _start_zmq_subscription_aggregator(old_log_inn_path, global_config):
+    """
+    start the global aggregator
+    """
+    program_path = os.path.join(old_log_inn_path, 
+                                "old_log_inn", 
+                                "zmq_subscription_aggregator.py")
+    args = [sys.executable, 
+            program_path,
+            "--sub-list={0}".format(global_config["aggregate_sub_socket_file"]),
+            "--pub={0}".format(global_config["aggregate_pub_socket_address"],
+            "--verbose")
+    ]
+
+    stdout_path = "/tmp/zmq_subscription_aggregator.log"
+    stdout_file = open(stdout_path, "w")
+
+    process = _start_subprocess(args, 
+                                None, 
+                                "global", 
+                                "zmq_subscription_aggregator",
                                 stdout=stdout_file)
     stdout_file.close()
     return process
@@ -351,15 +390,26 @@ def main():
     _constuct_aggregate_sub_socket_file(config, node_names)
 
     processes = list()
-    process = _start_zmq_subscription_aggregator(args.old_log_inn_path,
-                                                 config["global"])
-    processes.append(process)
 
+    # we start the processes from back to front
+
+    # optional wormhole to nimbus.io
+    if "directory_wormhole" in config["global"]:
+        process = _start_directory_wormhole(args.directory_wormhole_path,
+                                            config["global"])
+        processes.append(process)
+
+    # log stream writer 
     process = _start_zmq_log_stream_writer(args.old_log_inn_path,
                                            config["global"])
     processes.append(process)
 
+    # the aggregator
+    process = _start_zmq_subscription_aggregator(args.old_log_inn_path,
+                                                 config["global"])
+    processes.append(process)
 
+    # optional file logger
     if "zmq_log_file_logger" in config["global"]:
         process = \
             _start_zmq_log_file_logger(
