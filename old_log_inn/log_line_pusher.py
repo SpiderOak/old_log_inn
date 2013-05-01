@@ -9,13 +9,16 @@ the Stdin to ZMQ Push Log Handler.
 import json
 import os
 import socket
+import sys
 import time
 import uuid
 import zlib
 
 import zmq
 
-from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
+from old_log_inn.zmq_util import is_ipc_protocol, \
+    prepare_ipc_path, \
+    is_interrupted_system_call
 
 _hostname = os.environ.get("HOSTNAME", socket.gethostname())
 
@@ -70,8 +73,14 @@ class LogLinePusher(object):
         compressed_record = zlib.compress(log_line.encode("utf-8"))
 
         for push_socket in self._push_sockets:
-            push_socket.send(compressed_header, zmq.SNDMORE)
-            push_socket.send(compressed_record)
+            try:
+                push_socket.send(compressed_header, zmq.SNDMORE)
+                push_socket.send(compressed_record)
+            except ZMQError:
+                instance = sys.exc_info()[1]
+                # allow interrupted system call at shutdown
+                if not is_interrupted_system_call(instance):
+                    raise
 
     def close(self):
         """
