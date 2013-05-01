@@ -22,10 +22,18 @@ Then any local data files would be removed and the next grouped-by-timestamp
 set of archives would be processed.
 """
 import argparse
+from collections import defaultdict
+from itertools import groupby
+import json
 import logging
+import os
+import os.path
+import re
 import sys
 
 import motoboto
+
+from old_log_inn.log_stream import generate_log_stream_from_file
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 _log = logging.getLogger("main") 
@@ -49,14 +57,15 @@ def _parse_commandline():
     parser = argparse.ArgumentParser(description=_program_description)
     parser.add_argument("-v", "--verbose", action="store_true", default=False)
 
-    parser.add_argument("--output",  dest="log_dir")
+    parser.add_argument("--output",  dest="work_dir", default="/tmp")
     parser.add_argument("--add-hostname-to-path", dest="add_hostname_to_path",
                         action="store_true",  default=False) 
 
-    parser.add_argument("--host-regexp", dest="host_regexp")
-    parser.add_argument("--node-regexp", dest="node_regexp")
-    parser.add_argument("--log-filename-regexp", dest="log_filename_regexp")
-    parser.add_argument("--content-regexp", dest="content_regexp")
+    parser.add_argument("--host-regexp", dest="host_regexp", default="")
+    parser.add_argument("--node-regexp", dest="node_regexp", default="")
+    parser.add_argument("--log-filename-regexp", dest="log_filename_regexp",
+                        default="")
+    parser.add_argument("--content-regexp", dest="content_regexp", default="")
 
    # The above are the same arguments as to File Logger above.  In this case, 
    # you probably want to give a temporary directory for output since you are 
@@ -96,13 +105,46 @@ def _parse_commandline():
 
     return args
 
+def _construct_keep_header_pred(args):
+    """
+    return a function that runs all the regular expression tests that
+    determine whether we process a header
+    """
+    host_regexp = re.compile(args.host_regexp)
+    node_regexp = re.compile(args.node_regexp)
+    log_filename_regexp = re.compile(args.log_filename_regexp)
+
+    host_pred = lambda x: host_regexp.match(x["hostname"]) is not None
+    node_pred = \
+        lambda x: not "nodename" in x or \
+        node_regexp.match(x["nodename"]) is not None
+    log_filename_pred = \
+        lambda x: log_filename_regexp.match(x["log_path"]) is not None
+
+    predicates = [host_pred, node_pred, log_filename_pred, ]
+
+    def __keep_header_pred(header):
+        return all([pred(header) for pred in predicates])
+
+    return __keep_header_pred
+
+def _construct_keep_content_pred(args):
+    """
+    return a function that runs the regular expression test that
+    determines whether we process an event content block
+    """
+    content_regexp = re.compile(args.content_regexp)
+
+    return lambda x: content_regexp.match(x) is not None
+
 def _iterate_keys(bucket, 
                   prefix=None, 
                   suffix=None, 
                   low_timestamp=None, 
                   high_timestamp=None):
     """
-    fetch keys from nimbus.io, allowing for truncation 
+    fetch keys from nimbus.io
+    return a tuple of timestamp, key
     """
     timestamp_length = len("YYYYMMDDHHMMSS")
 
@@ -128,10 +170,70 @@ def _iterate_keys(bucket,
                 continue
             if high_timestamp is not None and timestamp > high_timestamp:
                 continue
-            print(timestamp)
-            yield key
+            yield timestamp, key
         if not key_list.truncated:
             raise StopIteration()
+
+def _header_key_function(header):
+    return (header["timestamp"], header["uuid"], )
+
+def _iterate_timestamp_content(work_dir,
+                               keep_header_pred,
+                               keep_content_pred,
+                               timestamp_key_dict):
+
+    # put the retrieved timestamps in order
+    timestamps = sorted(timestamp_key_dict.keys())
+
+    for timestamp in timestamps:
+        _log.info("timestamp {0}".format(timestamp))
+        header_list = list()
+        for index, key in enumerate(timestamp_key_dict[timestamp]):
+            _log.info("    key {0}".format(key.name))
+            retrieve_path = os.path.join(work_dir, key.name)
+
+            # retrieve the key from nimbus.io to a disk file
+            with open(retrieve_path, "wb") as output_file:
+                key.get_contents_to_file(output_file)
+                     
+            # write uncompressed data blocks to a file while maintaining 
+            # a sortable list of headers
+            data_file_name = "{0:08}".format(index)
+            data_file_path = os.path.join(work_dir, data_file_name)
+            with open(data_file_path, "wb") as data_file:            
+                for header_json, data in \
+                    generate_log_stream_from_file(retrieve_path):
+                    header = json.loads(header_json.decode("utf-8"))
+
+                    if not keep_header_pred(header):
+                        continue
+
+                    header["data_file_path"] = data_file_path
+                    header["data_offset"] = data_file.tell()
+                    header["data_size"] = len(data)
+                    header_list.append(header)
+                    data_file.write(data)
+
+            # we don't need the retrieved file anymore
+            os.unlink(retrieve_path)
+
+        # sort the combined header_list on timestamp and uuid
+        header_list.sort(key=_header_key_function)
+
+        # de-dupe the headers and retrieve the data
+        data_files = dict()
+        for _, group in groupby(header_list, key=_header_key_function):
+            group_list = list(group)
+            header = group_list[0]
+            if not header["data_file_path"] in data_files:
+                data_files[header["data_file_path"]] = \
+                    open(header["data_file_path"])
+            data_file = data_files[header["data_file_path"]]
+            data_file.seek(header["data_offset"])
+            data = data_file.read(header["data_size"])
+            if not keep_content_pred(data):
+                continue
+            yield data
 
 def main():
     """
@@ -143,7 +245,11 @@ def main():
 
     args = _parse_commandline()
     if args.verbose:
-        logging.root.setLevel(logging.DEBUG)
+#        logging.root.setLevel(logging.DEBUG)
+        logging.root.setLevel(logging.INFO)
+
+    if not os.path.isdir(args.work_dir):
+        os.makedirs(args.work_dir)
 
     _log.info("program starts")
 
@@ -158,11 +264,23 @@ def main():
     else:
         nimbusio_identity = None
 
+    # load all keys whose names fit our extract criteria
     bucket = motoboto.s3.bucket.Bucket(nimbusio_identity, args.collection_name)
-    for key in _iterate_keys(bucket, 
-                             prefix=args.archive_name_prefix,
-                             suffix=args.archive_name_suffix):
-        print(key.name)
+    timestamp_key_dict = defaultdict(list)
+    for timestamp, key in _iterate_keys(bucket, 
+                                        prefix=args.archive_name_prefix,
+                                        suffix=args.archive_name_suffix):
+        timestamp_key_dict[timestamp].append(key)
+
+    keep_header_pred = _construct_keep_header_pred(args)
+    keep_content_pred = _construct_keep_content_pred(args)
+
+    content_generator = _iterate_timestamp_content(args.work_dir,
+                                                   keep_header_pred,
+                                                   keep_content_pred,
+                                                   timestamp_key_dict)
+    for content in content_generator:
+        print(content)
 
     _log.info("program terminates return_code = {0}".format(return_code))
     return return_code
