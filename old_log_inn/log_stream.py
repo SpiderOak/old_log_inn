@@ -135,27 +135,28 @@ def generate_log_stream_from_file(path):
     """
     input_gzip_file = GzipFile(filename=path)
 
-    packed_frame = input_gzip_file.read(_frame_size)
-    if len(packed_frame) < _frame_size:
-        raise StopIteration()
+    while True:
+        packed_frame = input_gzip_file.read(_frame_size)
+        if len(packed_frame) < _frame_size:
+            raise StopIteration()
 
-    protocol_version, header_size, data_size = struct.unpack(_frame_format,
-                                                             packed_frame)
-    if protocol_version != _frame_protocol_version:
-        raise LogStreamError("Invalid protocol {0} expected {1}".format(
-            protocol_version, _frame_protocol_version))
+        protocol_version, header_size, data_size = struct.unpack(_frame_format,
+                                                                 packed_frame)
+        if protocol_version != _frame_protocol_version:
+            raise LogStreamError("Invalid protocol {0} expected {1}".format(
+                protocol_version, _frame_protocol_version))
 
-    header = input_gzip_file.read(header_size)
-    if len(header) != header_size:
-        raise LogStreamError("Invalid header read {0} expected {1}".format(
-            len(header), header_size))
+        header = input_gzip_file.read(header_size)
+        if len(header) != header_size:
+            raise LogStreamError("Invalid header read {0} expected {1}".format(
+                len(header), header_size))
 
-    data = input_gzip_file.read(data_size)
-    if len(data) != data_size:
-        raise LogStreamError("Invalid data read {0} expected {1}".format(
-            len(data), data_size))
+        data = input_gzip_file.read(data_size)
+        if len(data) != data_size:
+            raise LogStreamError("Invalid data read {0} expected {1}".format(
+                len(data), data_size))
 
-    yield header, data
+        yield header, data
 
 def generate_log_stream_from_directory(directory_name):
     """
