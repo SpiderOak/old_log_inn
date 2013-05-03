@@ -76,7 +76,7 @@ class LogLinePusher(object):
             try:
                 push_socket.send(compressed_header, zmq.SNDMORE)
                 push_socket.send(compressed_record)
-            except ZMQError:
+            except zmq.ZMQError:
                 instance = sys.exc_info()[1]
                 # allow interrupted system call at shutdown
                 if not is_interrupted_system_call(instance):

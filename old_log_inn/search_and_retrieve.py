@@ -98,12 +98,21 @@ def _parse_commandline():
    # day", "1 week", "1 month".  
    # [default: '1 month']
     parser.add_argument("--go-back", dest="go_back",  
-                        help="Set start and stop automatically by specifying " \
+                        help="Set start automatically by specifying " \
                         "an interval")
 
     args = parser.parse_args()
 
     return args
+
+def _organize_timestamps(args):
+    """
+    return a tuple of low_timestamp, high_timkestamp based on the args
+    """
+    if args.go_back is None:
+        return args.start, args.stop
+
+    raise NotImplemented("args.go_back")
 
 def _construct_keep_header_pred(args):
     """
@@ -248,6 +257,8 @@ def main():
 #        logging.root.setLevel(logging.DEBUG)
         logging.root.setLevel(logging.INFO)
 
+    low_timestamp, high_timestamp = _organize_timestamps(args)
+
     if not os.path.isdir(args.work_dir):
         os.makedirs(args.work_dir)
 
@@ -269,7 +280,9 @@ def main():
     timestamp_key_dict = defaultdict(list)
     for timestamp, key in _iterate_keys(bucket, 
                                         prefix=args.archive_name_prefix,
-                                        suffix=args.archive_name_suffix):
+                                        suffix=args.archive_name_suffix,
+                                        low_timestamp=low_timestamp,
+                                        high_timestamp=high_timestamp):
         timestamp_key_dict[timestamp].append(key)
 
     keep_header_pred = _construct_keep_header_pred(args)
