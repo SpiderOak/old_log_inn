@@ -299,6 +299,9 @@ def _start_data_source(old_log_inn_path, data_source_config):
                 data_source_config["push_socket_address"]),
             "--verbose"]
 
+    if "interval" in data_source_config:
+        args.append("--interval={0}".format(data_source_config["interval"]))
+
     stdout_path = "/tmp/data_source.log"
     stdout_file = open(stdout_path, "w")
 

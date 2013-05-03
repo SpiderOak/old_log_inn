@@ -10,7 +10,10 @@ import sys
 
 import zmq
 
-from old_log_inn.zmq_util import is_ipc_protocol, prepare_ipc_path
+from old_log_inn.zmq_util import is_ipc_protocol, \
+    prepare_ipc_path, \
+    is_interrupted_system_call
+
 from old_log_inn.signal_handler import set_signal_handler
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
@@ -21,6 +24,8 @@ def _parse_commandline():
     parser.add_argument("-s", "--source-path", dest="source_path")
     parser.add_argument("-p", "--push-socket-address", 
                         dest="push_socket_address")
+    parser.add_argument("-i", "--interval", type=float, dest="interval", 
+                        default=1.0)
     parser.add_argument("--verbose", dest="verbose", action="store_true", 
                         default=False)
     return parser.parse_args()
@@ -59,12 +64,20 @@ def main():
     _log.debug("opening {0}".format(args.source_path))
     with open(args.source_path, "r") as input_file:
         for line in input_file.readlines():
+            halt_event.wait(args.interval)
             if halt_event.is_set():
                 _log.warn("breaking read loop: halt_event is set")
                 break
             line_count += 1
-            push_socket.send(str(line_count).encode("utf-8"), zmq.SNDMORE)
-            push_socket.send(line[:-1].encode("utf-8"))
+            try:
+                push_socket.send(str(line_count).encode("utf-8"), zmq.SNDMORE)
+                push_socket.send(line[:-1].encode("utf-8"))
+            except zmq.ZMQError:
+                instance = sys.exc_info()[1]
+                if is_interrupted_system_call(instance) and halt_event.is_set():
+                    pass
+                else:
+                    raise
 
     _log.debug("shutting down: published {0} lines".format(line_count))
     push_socket.close()

@@ -12,7 +12,8 @@
      		},
         "data_source" : {
             "source_path" : "/usr/share/dict/words",
-            "push_socket_address" : "ipc:///tmp/data_source.socket"
+            "push_socket_address" : "ipc:///tmp/data_source.socket",
+            "interval"  : 0.1
             },
         "directory_wormhole" : {
             "nimbusio_identity" : "/tmp/old-log-inn.identity",
