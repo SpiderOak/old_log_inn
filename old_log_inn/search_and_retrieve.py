@@ -23,6 +23,7 @@ set of archives would be processed.
 """
 import argparse
 from collections import defaultdict
+from datetime import datetime, timedelta
 from itertools import groupby
 import json
 import logging
@@ -37,7 +38,15 @@ from old_log_inn.log_stream import generate_log_stream_from_file
 
 _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 _log = logging.getLogger("main") 
-_program_description = "log_archive_search_and_retrieve" 
+_program_description = "log_archive_search_and_retrieve"
+_go_back_re = re.compile(r"^(?P<amount>\d+)\s+(?P<interval>\S+)")
+_timestamp_re = re.compile(r"^(?P<year>\d{4})" \
+                           r"(?P<month>\d{2})" \
+                           r"(?P<day>\d{2})" \
+                           r"(?P<hour>\d{2})" \
+                           r"(?P<minute>\d{2})" \
+                           r"(?P<second>\d{2})")
+_timestamp_format = "%Y%m%d%H%M%S"
 
 def _initialize_logging():
     """
@@ -105,14 +114,66 @@ def _parse_commandline():
 
     return args
 
+def _parse_timestamp(timestamp):
+    match_object = _timestamp_re.match(timestamp)
+    assert match_object is not None
+    return datetime(year=int(match_object.group("year")), 
+                    month=int(match_object.group("month")), 
+                    day=int(match_object.group("day")),
+                    hour=int(match_object.group("hour")), 
+                    minute=int(match_object.group("minute")), 
+                    second=int(match_object.group("second")))
+
 def _organize_timestamps(args):
     """
     return a tuple of low_timestamp, high_timkestamp based on the args
     """
     if args.go_back is None:
+        assert args.start is None or \
+            _timestamp_re.match(args.start) is not None
+        assert args.stop is None or \
+            _timestamp_re.match(args.stop) is not None
         return args.start, args.stop
 
-    raise NotImplemented("args.go_back")
+    # we are going to compute start, so the user should not specify it
+    assert args.start is None
+
+    if args.stop is None:
+        stop_time = datetime.utcnow()
+    else:
+        stop_time = _parse_timestamp(args.stop)
+
+    # Set stop automatically by specifying an interval, such as "1 day", 
+    # "1 week", "1 month". 
+    go_back_match_object = _go_back_re.match(args.go_back.replace("_", " "))
+    if go_back_match_object is None:
+        raise ValueError("unparsable go_back '{0}".format(args.go_back))
+
+    interval_str = go_back_match_object.group("interval").lower()
+    if interval_str in ["second", "seconds", ]:
+        interval = timedelta(seconds=1)
+    elif interval_str in ["minute", "minutes", ]:
+        interval = timedelta(minutes=1)
+    elif interval_str in ["hour", "hours", ]:
+        interval = timedelta(hours=1)
+    elif interval_str in ["day", "days", ]:
+        interval = timedelta(days=1)
+    elif interval_str in ["month", "months", ]:
+        interval = timedelta(months=1)
+    elif interval_str in ["year", "years", ]:
+        interval = timedelta(years=1)
+    else:
+        raise ValueError("Invalid go back interval '{0}".format(interval_str))
+
+    amount = int(go_back_match_object.group("amount"))
+
+    start_time = stop_time - (interval * amount)
+    assert start_time <= stop_time
+
+    start_timestamp = start_time.strftime(_timestamp_format)
+    stop_timestamp = stop_time.strftime(_timestamp_format)
+
+    return start_timestamp, stop_timestamp
 
 def _construct_keep_header_pred(args):
     """
@@ -256,14 +317,16 @@ def main():
     if args.verbose:
 #        logging.root.setLevel(logging.DEBUG)
         logging.root.setLevel(logging.INFO)
+    _log.info("program starts")
 
     low_timestamp, high_timestamp = _organize_timestamps(args)
+    _log.info("low_timestamp = {0}, high_timestamp = {1}".format(
+             low_timestamp, high_timestamp))
 
     if not os.path.isdir(args.work_dir):
         os.makedirs(args.work_dir)
 
-    _log.info("program starts")
-
+ 
     if args.identity_path is not None:
         _log.info("loading identity from {0}".format(args.identity_path))
         nimbusio_identity = \
