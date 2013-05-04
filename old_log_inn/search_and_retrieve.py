@@ -257,7 +257,10 @@ def _iterate_timestamp_content(work_dir,
 
     for timestamp in timestamps:
         _log.info("timestamp {0}".format(timestamp))
+
         header_list = list()
+        data_file_paths = list()
+
         for index, key in enumerate(timestamp_key_dict[timestamp]):
             _log.info("    key {0}".format(key.name))
             retrieve_path = os.path.join(work_dir, key.name)
@@ -270,6 +273,7 @@ def _iterate_timestamp_content(work_dir,
             # a sortable list of headers
             data_file_name = "{0:08}".format(index)
             data_file_path = os.path.join(work_dir, data_file_name)
+            data_file_paths.append(data_file_path)
             with open(data_file_path, "wb") as data_file:            
                 for header_json, data in \
                     generate_log_stream_from_file(retrieve_path):
@@ -304,6 +308,12 @@ def _iterate_timestamp_content(work_dir,
             if not keep_content_pred(data):
                 continue
             yield data
+
+        for data_file in data_files.values():
+            data_file.close()
+
+        for data_file_path in data_file_paths:
+            os.unlink(data_file_path)
 
 def main():
     """
