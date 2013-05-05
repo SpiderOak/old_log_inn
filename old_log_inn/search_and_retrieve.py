@@ -40,6 +40,7 @@ _log_format_template = '%(asctime)s %(levelname)-8s %(name)-20s: %(message)s'
 _log = logging.getLogger("main") 
 _program_description = "log_archive_search_and_retrieve"
 _go_back_re = re.compile(r"^(?P<amount>\d+)\s+(?P<interval>\S+)")
+_go_back_default = timedelta(days=30)
 _timestamp_re = re.compile(r"^(?P<year>\d{4})" \
                            r"(?P<month>\d{2})" \
                            r"(?P<day>\d{2})" \
@@ -124,30 +125,12 @@ def _parse_timestamp(timestamp):
                     minute=int(match_object.group("minute")), 
                     second=int(match_object.group("second")))
 
-def _organize_timestamps(args):
-    """
-    return a tuple of low_timestamp, high_timkestamp based on the args
-    """
-    if args.go_back is None:
-        assert args.start is None or \
-            _timestamp_re.match(args.start) is not None
-        assert args.stop is None or \
-            _timestamp_re.match(args.stop) is not None
-        return args.start, args.stop
-
-    # we are going to compute start, so the user should not specify it
-    assert args.start is None
-
-    if args.stop is None:
-        stop_time = datetime.utcnow()
-    else:
-        stop_time = _parse_timestamp(args.stop)
-
+def _parse_go_back(go_back_text):
     # Set stop automatically by specifying an interval, such as "1 day", 
     # "1 week", "1 month". 
-    go_back_match_object = _go_back_re.match(args.go_back.replace("_", " "))
+    go_back_match_object = _go_back_re.match(go_back_text.replace("_", " "))
     if go_back_match_object is None:
-        raise ValueError("unparsable go_back '{0}".format(args.go_back))
+        raise ValueError("unparsable go_back '{0}".format(go_back_text))
 
     interval_str = go_back_match_object.group("interval").lower()
     if interval_str in ["second", "seconds", ]:
@@ -159,15 +142,43 @@ def _organize_timestamps(args):
     elif interval_str in ["day", "days", ]:
         interval = timedelta(days=1)
     elif interval_str in ["month", "months", ]:
-        interval = timedelta(months=1)
+        interval = timedelta(days=30)
     elif interval_str in ["year", "years", ]:
-        interval = timedelta(years=1)
+        interval = timedelta(days=365)
     else:
         raise ValueError("Invalid go back interval '{0}".format(interval_str))
 
     amount = int(go_back_match_object.group("amount"))
+    return interval * amount
 
-    start_time = stop_time - (interval * amount)
+def _organize_timestamps(args):
+    """
+    return a tuple of low_timestamp, high_timkestamp based on the args
+
+    If none of start, stop or go-back is specified
+        we go back one month
+
+    If start is not specified and stop is, 
+        we go back from stop either the value of go-back or the default 1 month
+
+    If start and stop are both specified, we use them as they stand
+    """
+    if args.go_back is None:
+        go_back_delta = _go_back_default
+    else:        
+        assert args.start is None
+        go_back_delta = _parse_go_back(args.go_back)
+
+    if args.stop is None:
+        stop_time = datetime.utcnow()
+    else:
+        stop_time = _parse_timestamp(args.stop)
+
+    if args.start is None:
+        start_time = stop_time - go_back_delta
+    else:
+        start_time = _parse_timestamp(args.start)
+
     assert start_time <= stop_time
 
     start_timestamp = start_time.strftime(_timestamp_format)
